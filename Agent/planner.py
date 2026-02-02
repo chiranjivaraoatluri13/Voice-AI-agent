@@ -27,6 +27,28 @@ def plan(utter: str) -> Optional[Command]:
     if t in ("home", "go home"):
         return Command(action="HOME")
 
+    # **NEW: Learning commands**
+    if t == "teach":
+        return Command(action="TEACH_LAST")
+    
+    if t.startswith("teach "):
+        rest = raw[6:].strip()
+        # Pattern: "teach <shortcut> <app>"
+        # Examples: "teach google chrome", "teach music spotify"
+        parts = rest.split(None, 1)
+        if len(parts) == 2:
+            return Command(action="TEACH_CUSTOM", query=parts[0], text=parts[1])
+        else:
+            # Just "teach google" - teach the last opened app with this shortcut
+            return Command(action="TEACH_SHORTCUT", query=parts[0])
+    
+    if t.startswith("forget "):
+        return Command(action="FORGET_MAPPING", query=raw[7:].strip())
+    
+    if t in ("list mappings", "show mappings", "my mappings", "mappings"):
+        return Command(action="LIST_MAPPINGS")
+
+    # Existing commands
     if t.startswith("find "):
         return Command(action="FIND_APP", query=raw[5:].strip())
 

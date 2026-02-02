@@ -5,6 +5,7 @@ from difflib import SequenceMatcher
 from typing import List, Tuple, Optional
 
 from agent.adb import AdbClient
+from agent.learner import CommandLearner
 
 # -------------------------
 # Known system app fallbacks (fast path)
@@ -48,17 +49,21 @@ SYSTEM_FALLBACKS = {
 
 class AppResolver:
     """
-    Fast + explainable app resolution:
+    Fast + explainable app resolution with learning capability:
     - One-time fast package list
     - Lazy label fetch (dumpsys only for top candidates)
     - System fallbacks for common apps
+    - USER-TRAINED MAPPINGS (new!)
     - Asks user when ambiguous
     """
 
-    def __init__(self, adb: AdbClient) -> None:
+    def __init__(self, adb: AdbClient, learner: Optional[CommandLearner] = None) -> None:
         self.adb = adb
         self.packages: List[str] = []
         self.label_cache: dict[str, str] = {}
+        # Learning system
+        self.learner = learner if learner else CommandLearner()
+        self.last_choice: Optional[Tuple[str, str, str]] = None  # (query, package, label)
 
     # -------------------------
     # Package discovery
@@ -134,7 +139,7 @@ class AppResolver:
 
         for pkg in SYSTEM_FALLBACKS[key]:
             if self._installed(pkg):
-                print(f"🔁 Using system fallback: {pkg}")
+                print(f"📱 Using system fallback: {pkg}")
                 return pkg
         return None
 
@@ -187,9 +192,9 @@ class AppResolver:
         return refined[:limit]
 
     # -------------------------
-    # Resolve or ask user
+    # Resolve or ask user (with learning)
     # -------------------------
-    def resolve_or_ask(self, query: str) -> Optional[str]:
+    def resolve_or_ask(self, query: str, allow_learning: bool = True) -> Optional[str]:
         q = query.strip()
         if not q:
             return None
@@ -198,9 +203,19 @@ class AppResolver:
         if "." in q and " " not in q:
             return q
 
+        # **NEW: Check user-trained mappings FIRST**
+        learned_pkg = self.learner.resolve(q)
+        if learned_pkg:
+            label = self._label_for(learned_pkg)
+            print(f"🎓 Using learned mapping: '{q}' → {label}")
+            self.last_choice = (q, learned_pkg, label)
+            return learned_pkg
+
         # System fallback
         fb = self.try_system_fallback(q)
         if fb:
+            label = self._label_for(fb)
+            self.last_choice = (q, fb, label)
             return fb
 
         cands = self.candidates(q, limit=7)
@@ -210,15 +225,21 @@ class AppResolver:
 
         top_score, top_label, top_pkg = cands[0]
 
+        # Auto-select if confident
         if top_score >= 0.78 and (
             len(cands) == 1 or top_score - cands[1][0] >= 0.10
         ):
             print(f"✅ Opening: {top_label} ({top_pkg})")
+            self.last_choice = (q, top_pkg, top_label)
             return top_pkg
 
+        # Ask user to choose
         print(f"🤔 I found multiple possible matches for '{q}'. Which one should I open?")
         for i, (score, label, pkg) in enumerate(cands, 1):
-            print(f"  {i}. {label} ({pkg}) score={score:.2f}")
+            # Show if user has other aliases for this app
+            aliases = self.learner.get_aliases_for(pkg)
+            alias_str = f" [aliases: {', '.join(aliases)}]" if aliases else ""
+            print(f"  {i}. {label} ({pkg}) score={score:.2f}{alias_str}")
 
         choice = input("Type a number (or 0 to cancel): ").strip()
         if not choice.isdigit():
@@ -233,7 +254,46 @@ class AppResolver:
         if 1 <= n <= len(cands):
             _, label, pkg = cands[n - 1]
             print(f"✅ Opening: {label} ({pkg})")
+            self.last_choice = (q, pkg, label)
+            
+            # **NEW: Suggest teaching after selection**
+            if allow_learning:
+                self.learner.suggest_teaching(q, pkg, label)
+            
             return pkg
 
         print("❌ Invalid choice.")
         return None
+
+    # -------------------------
+    # Teaching interface
+    # -------------------------
+    def teach_last(self) -> bool:
+        """
+        Teach the last app that was opened.
+        Returns True if successful, False otherwise.
+        """
+        if not self.last_choice:
+            print("❌ No recent app selection to teach.")
+            return False
+        
+        query, package, label = self.last_choice
+        self.learner.interactive_teach(query, package, label)
+        return True
+
+    def teach_custom(self, shortcut: str, query: str) -> bool:
+        """
+        Teach a custom shortcut for an app.
+        
+        Args:
+            shortcut: The shortcut name to learn
+            query: The app to find and map to
+        """
+        # Resolve the app first
+        pkg = self.resolve_or_ask(query, allow_learning=False)
+        if not pkg:
+            return False
+        
+        label = self._label_for(pkg)
+        self.learner.teach(shortcut, pkg, label)
+        return True

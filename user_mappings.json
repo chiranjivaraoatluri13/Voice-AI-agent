@@ -1,0 +1,19 @@
+{
+  "mappings": {},
+  "aliases": {},
+  "history": [
+    {
+      "timestamp": "2026-02-01T17:16:51.027030",
+      "query": "chrome",
+      "package": "com.android.chrome",
+      "label": "Chrome"
+    },
+    {
+      "timestamp": "2026-02-01T17:17:12.481288",
+      "query": "google",
+      "package": "com.android.chrome",
+      "label": "Chrome"
+    }
+  ],
+  "last_updated": "2026-02-01T17:19:14.038459"
+}

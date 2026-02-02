@@ -15,18 +15,24 @@ Action = Literal[
     "WAKE",
     "REINDEX_APPS",
     "EXIT",
+    # **NEW: Learning actions**
+    "TEACH_LAST",           # Teach the last opened app
+    "TEACH_CUSTOM",         # Teach custom mapping: teach <shortcut> <app>
+    "TEACH_SHORTCUT",       # Teach shortcut for last app
+    "FORGET_MAPPING",       # Forget a learned mapping
+    "LIST_MAPPINGS",        # Show all learned mappings
 ]
 
 @dataclass
 class Command:
     action: Action
-    # For OPEN_APP / FIND_APP
+    # For OPEN_APP / FIND_APP / FORGET_MAPPING
     query: Optional[str] = None
     package: Optional[str] = None  # when we already know the package
     # For SCROLL
     direction: Optional[Literal["UP", "DOWN"]] = None
     amount: int = 1
-    # For TYPE_TEXT
+    # For TYPE_TEXT / TEACH_CUSTOM (text is the target app for teaching)
     text: Optional[str] = None
     # For TAP
     x: Optional[int] = None
