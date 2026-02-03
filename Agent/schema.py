@@ -1,5 +1,5 @@
 # =========================
-# FILE: agent/schema.py
+# FILE: agent/schema.py (COMPLETE WORKING VERSION)
 # =========================
 from dataclasses import dataclass
 from typing import Optional, Literal
@@ -25,12 +25,12 @@ Action = Literal[
     "VISION_QUERY",
     "SCREEN_INFO",
     "FIND_VISUAL",
-    # Volume controls (NEW)
+    # Volume controls
     "VOLUME_UP",
     "VOLUME_DOWN",
     "SET_VOLUME",
     "VOLUME_MUTE",
-    # Media controls (NEW)
+    # Media controls
     "MEDIA_PLAY",
     "MEDIA_PAUSE",
     "MEDIA_PLAY_PAUSE",
@@ -44,14 +44,10 @@ Action = Literal[
 @dataclass
 class Command:
     action: Action
-    # For OPEN_APP / FIND_APP / FORGET_MAPPING
     query: Optional[str] = None
     package: Optional[str] = None
-    # For SCROLL / VOLUME
     direction: Optional[Literal["UP", "DOWN"]] = None
     amount: int = 1
-    # For TYPE_TEXT / TEACH_CUSTOM
     text: Optional[str] = None
-    # For TAP
     x: Optional[int] = None
     y: Optional[int] = None

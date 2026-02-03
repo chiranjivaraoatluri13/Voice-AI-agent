@@ -235,36 +235,10 @@ class AppResolver:
 
         top_score, top_label, top_pkg = cands[0]
         
-        # **NEW: Smart suggestions for low-confidence matches**
+        # **NEW: Reject if top score is too low (likely gibberish)**
         if top_score < 0.55:
-            print(f"🤔 I'm not sure what '{q}' means. Did you mean one of these?")
-            
-            # Show top 3 suggestions
-            for i, (score, label, pkg) in enumerate(cands[:3], 1):
-                print(f"  {i}. {label} ({score:.0%} match)")
-            
-            print(f"  0. None of these / Cancel")
-            
-            choice = input("Type a number (or just describe what you want): ").strip()
-            
-            # If number, use that choice
-            if choice.isdigit():
-                n = int(choice)
-                if n == 0:
-                    print("❌ Cancelled. Try 'find <app>' to search all apps.")
-                    return None
-                if 1 <= n <= min(3, len(cands)):
-                    _, label, pkg = cands[n - 1]
-                    print(f"✅ Opening: {label}")
-                    self.last_choice = (q, pkg, label)
-                    if allow_learning:
-                        self.learner.suggest_teaching(q, pkg, label)
-                    return pkg
-            else:
-                # User typed description - try again with that
-                print(f"💡 Searching for: {choice}")
-                return self.resolve_or_ask(choice, allow_learning)
-            
+            print(f"❌ No good matches for '{q}' (best match: {top_label} with only {top_score:.0%} confidence).")
+            print(f"💡 Tip: Check spelling or try 'find {q}' to see all possibilities.")
             return None
 
         # Auto-select if confident

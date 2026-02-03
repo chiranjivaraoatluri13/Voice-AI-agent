@@ -1,0 +1,77 @@
+# =========================
+# ADD THESE TO execute_command() in controller.py
+# =========================
+
+# After the existing command handlers, add:
+
+    # ===========================
+    # VOLUME CONTROLS
+    # ===========================
+    
+    if cmd.action == "VOLUME_UP":
+        amount = max(1, min(cmd.amount, 10))
+        device.volume_up(amount)
+        print(f"🔊 Volume up ({amount}x)")
+        return
+    
+    if cmd.action == "VOLUME_DOWN":
+        amount = max(1, min(cmd.amount, 10))
+        device.volume_down(amount)
+        print(f"🔉 Volume down ({amount}x)")
+        return
+    
+    if cmd.action == "SET_VOLUME":
+        level = max(0, min(100, cmd.amount))
+        current = device.get_volume()
+        device.set_volume(level)
+        print(f"🔊 Volume: {current}% → {level}%")
+        return
+    
+    if cmd.action == "VOLUME_MUTE":
+        device.volume_mute()
+        print("🔇 Muted")
+        return
+    
+    # ===========================
+    # MEDIA CONTROLS
+    # ===========================
+    
+    if cmd.action == "MEDIA_PLAY":
+        device.media_play()
+        print("▶️  Play")
+        return
+    
+    if cmd.action == "MEDIA_PAUSE":
+        device.media_pause()
+        print("⏸️  Pause")
+        return
+    
+    if cmd.action == "MEDIA_PLAY_PAUSE":
+        device.media_play_pause()
+        print("⏯️  Play/Pause")
+        return
+    
+    if cmd.action == "MEDIA_STOP":
+        device.media_stop()
+        print("⏹️  Stop")
+        return
+    
+    if cmd.action == "MEDIA_NEXT":
+        device.media_next()
+        print("⏭️  Next")
+        return
+    
+    if cmd.action == "MEDIA_PREVIOUS":
+        device.media_previous()
+        print("⏮️  Previous")
+        return
+    
+    if cmd.action == "MEDIA_FAST_FORWARD":
+        device.media_fast_forward()
+        print("⏩ Fast forward")
+        return
+    
+    if cmd.action == "MEDIA_REWIND":
+        device.media_rewind()
+        print("⏪ Rewind")
+        return
