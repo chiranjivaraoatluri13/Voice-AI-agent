@@ -139,7 +139,7 @@ class AppResolver:
 
         for pkg in SYSTEM_FALLBACKS[key]:
             if self._installed(pkg):
-                print(f"📱 Using system fallback: {pkg}")
+                print(f"ðŸ“± Using system fallback: {pkg}")
                 return pkg
         return None
 
@@ -149,7 +149,12 @@ class AppResolver:
     def candidates(
         self, query: str, limit: int = 7
     ) -> List[Tuple[float, str, str]]:
-        q = query.strip().lower()
+        q = query.strip()
+        
+        # Sanitize query
+        q = re.sub(r'[.,;!?]+$', '', q).strip()
+        q = re.sub(r'[^\w\s.-]', '', q).lower()
+        
         if not q:
             return []
 
@@ -196,6 +201,11 @@ class AppResolver:
     # -------------------------
     def resolve_or_ask(self, query: str, allow_learning: bool = True) -> Optional[str]:
         q = query.strip()
+        
+        # Sanitize query: remove common punctuation that users might accidentally include
+        q = re.sub(r'[.,;!?]+$', '', q).strip()  # Remove trailing punctuation
+        q = re.sub(r'[^\w\s.-]', '', q)  # Remove special chars except word chars, spaces, dots, hyphens
+        
         if not q:
             return None
 
@@ -207,7 +217,7 @@ class AppResolver:
         learned_pkg = self.learner.resolve(q)
         if learned_pkg:
             label = self._label_for(learned_pkg)
-            print(f"🎓 Using learned mapping: '{q}' → {label}")
+            print(f"ðŸŽ“ Using learned mapping: '{q}' â†’ {label}")
             self.last_choice = (q, learned_pkg, label)
             return learned_pkg
 
@@ -220,21 +230,53 @@ class AppResolver:
 
         cands = self.candidates(q, limit=7)
         if not cands:
-            print(f"❌ I couldn't find any app like '{q}'.")
+            print(f"âŒ I couldn't find any app like '{q}'.")
             return None
 
         top_score, top_label, top_pkg = cands[0]
+        
+        # **NEW: Smart suggestions for low-confidence matches**
+        if top_score < 0.55:
+            print(f"🤔 I'm not sure what '{q}' means. Did you mean one of these?")
+            
+            # Show top 3 suggestions
+            for i, (score, label, pkg) in enumerate(cands[:3], 1):
+                print(f"  {i}. {label} ({score:.0%} match)")
+            
+            print(f"  0. None of these / Cancel")
+            
+            choice = input("Type a number (or just describe what you want): ").strip()
+            
+            # If number, use that choice
+            if choice.isdigit():
+                n = int(choice)
+                if n == 0:
+                    print("❌ Cancelled. Try 'find <app>' to search all apps.")
+                    return None
+                if 1 <= n <= min(3, len(cands)):
+                    _, label, pkg = cands[n - 1]
+                    print(f"✅ Opening: {label}")
+                    self.last_choice = (q, pkg, label)
+                    if allow_learning:
+                        self.learner.suggest_teaching(q, pkg, label)
+                    return pkg
+            else:
+                # User typed description - try again with that
+                print(f"💡 Searching for: {choice}")
+                return self.resolve_or_ask(choice, allow_learning)
+            
+            return None
 
         # Auto-select if confident
         if top_score >= 0.78 and (
             len(cands) == 1 or top_score - cands[1][0] >= 0.10
         ):
-            print(f"✅ Opening: {top_label} ({top_pkg})")
+            print(f"âœ… Opening: {top_label} ({top_pkg})")
             self.last_choice = (q, top_pkg, top_label)
             return top_pkg
 
         # Ask user to choose
-        print(f"🤔 I found multiple possible matches for '{q}'. Which one should I open?")
+        print(f"ðŸ¤” I found multiple possible matches for '{q}'. Which one should I open?")
         for i, (score, label, pkg) in enumerate(cands, 1):
             # Show if user has other aliases for this app
             aliases = self.learner.get_aliases_for(pkg)
@@ -243,7 +285,7 @@ class AppResolver:
 
         choice = input("Type a number (or 0 to cancel): ").strip()
         if not choice.isdigit():
-            print("❌ Not a number. Cancelled.")
+            print("âŒ Not a number. Cancelled.")
             return None
 
         n = int(choice)
@@ -253,7 +295,7 @@ class AppResolver:
 
         if 1 <= n <= len(cands):
             _, label, pkg = cands[n - 1]
-            print(f"✅ Opening: {label} ({pkg})")
+            print(f"âœ… Opening: {label} ({pkg})")
             self.last_choice = (q, pkg, label)
             
             # **NEW: Suggest teaching after selection**
@@ -262,7 +304,7 @@ class AppResolver:
             
             return pkg
 
-        print("❌ Invalid choice.")
+        print("âŒ Invalid choice.")
         return None
 
     # -------------------------
@@ -274,7 +316,7 @@ class AppResolver:
         Returns True if successful, False otherwise.
         """
         if not self.last_choice:
-            print("❌ No recent app selection to teach.")
+            print("âŒ No recent app selection to teach.")
             return False
         
         query, package, label = self.last_choice

@@ -15,12 +15,16 @@ Action = Literal[
     "WAKE",
     "REINDEX_APPS",
     "EXIT",
-    # **NEW: Learning actions**
+    # Learning actions
     "TEACH_LAST",           # Teach the last opened app
     "TEACH_CUSTOM",         # Teach custom mapping: teach <shortcut> <app>
     "TEACH_SHORTCUT",       # Teach shortcut for last app
     "FORGET_MAPPING",       # Forget a learned mapping
     "LIST_MAPPINGS",        # Show all learned mappings
+    # Vision actions (NEW)
+    "VISION_QUERY",         # Complex vision-based query
+    "SCREEN_INFO",          # "What do you see?"
+    "FIND_VISUAL",          # Find by visual description
 ]
 
 @dataclass

@@ -8,6 +8,31 @@ from agent.schema import Command
 def plan(utter: str) -> Optional[Command]:
     raw = utter.strip()
     t = raw.lower().strip()
+    
+    # Sanitize: remove trailing punctuation from the entire input
+    t = re.sub(r'[.,;!?]+$', '', t).strip()
+    raw = re.sub(r'[.,;!?]+$', '', raw).strip()
+    
+    # Smart gibberish detection and correction
+    # Detect patterns like "youtubeXXXXX" and auto-extract known app names
+    words = t.split()
+    for word in words:
+        # If word is long (>15 chars), has no dots (not a package), check for app names
+        if len(word) > 15 and '.' not in word:
+            # Check for excessive consonant clusters (sign of gibberish)
+            consonant_clusters = re.findall(r'[bcdfghjklmnpqrstvwxyz]{4,}', word)
+            if consonant_clusters:
+                # Try to extract potential app name from the start (quietly)
+                common_apps = ['youtube', 'gmail', 'chrome', 'maps', 'photos', 'drive', 
+                              'calendar', 'messages', 'phone', 'settings', 'camera', 
+                              'whatsapp', 'instagram', 'facebook', 'twitter', 'spotify']
+                for app in common_apps:
+                    if word.startswith(app):
+                        # Auto-correct silently
+                        t = t.replace(word, app)
+                        raw = raw.replace(word, app, 1)
+                        print(f"💡 Auto-corrected '{word}' → '{app}'")
+                        break
 
     if not t:
         return None
@@ -72,5 +97,24 @@ def plan(utter: str) -> Optional[Command]:
     m = re.match(r"tap\s+(\d+)\s+(\d+)$", t)
     if m:
         return Command(action="TAP", x=int(m.group(1)), y=int(m.group(2)))
+
+    # **NEW: Vision-based queries**
+    # Info queries: "what do you see?", "describe screen", "list videos"
+    if any(word in t for word in ["what", "describe", "list", "show me", "tell me"]):
+        return Command(action="SCREEN_INFO", query=raw)
+    
+    # Visual element queries: "click red button", "tap the car image", "first video"
+    # Complex queries that need vision or smart routing
+    if any(word in t for word in ["click", "tap", "select", "choose", "find"]):
+        # Extract what comes after the action verb
+        for verb in ["click", "tap", "select", "choose", "find"]:
+            if t.startswith(verb):
+                target = raw[len(verb):].strip()
+                if target:
+                    return Command(action="VISION_QUERY", query=target)
+    
+    # Catch-all for complex queries
+    if len(t.split()) > 2:  # Multi-word query likely needs vision
+        return Command(action="VISION_QUERY", query=raw)
 
     return None

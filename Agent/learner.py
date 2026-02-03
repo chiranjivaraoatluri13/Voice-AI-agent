@@ -43,7 +43,7 @@ class CommandLearner:
                 self.aliases = data.get("aliases", {})
                 self.training_history = data.get("history", [])
         except Exception as e:
-            print(f"⚠️ Could not load mappings: {e}")
+            print(f"âš ï¸ Could not load mappings: {e}")
             self._initialize_default()
 
     def save(self) -> None:
@@ -58,7 +58,7 @@ class CommandLearner:
             with open(self.config_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, ensure_ascii=False)
         except Exception as e:
-            print(f"⚠️ Could not save mappings: {e}")
+            print(f"âš ï¸ Could not save mappings: {e}")
 
     def _initialize_default(self) -> None:
         """Create default empty mappings."""
@@ -78,7 +78,17 @@ class CommandLearner:
             package: Package name (e.g., "com.android.chrome")
             label: Human-readable app name (e.g., "Chrome")
         """
-        query_key = query.strip().lower()
+        import re
+        
+        # Sanitize query
+        query_cleaned = query.strip()
+        query_cleaned = re.sub(r'[.,;!?]+$', '', query_cleaned)
+        query_cleaned = re.sub(r'[^\w\s.-]', '', query_cleaned)
+        query_key = query_cleaned.lower()
+        
+        if not query_key:
+            print("❌ Invalid query (empty after sanitization)")
+            return
         
         # Store the mapping
         self.mappings[query_key] = package
@@ -100,7 +110,7 @@ class CommandLearner:
         self.save()
         
         display_label = label if label else package
-        print(f"✅ Learned: '{query}' → {display_label}")
+        print(f"âœ… Learned: '{query}' â†’ {display_label}")
 
     def forget(self, query: str) -> bool:
         """
@@ -109,7 +119,13 @@ class CommandLearner:
         Returns:
             True if mapping was removed, False if it didn't exist
         """
-        query_key = query.strip().lower()
+        import re
+        
+        # Sanitize query
+        query_cleaned = query.strip()
+        query_cleaned = re.sub(r'[.,;!?]+$', '', query_cleaned)
+        query_cleaned = re.sub(r'[^\w\s.-]', '', query_cleaned)
+        query_key = query_cleaned.lower()
         
         if query_key not in self.mappings:
             return False
@@ -128,7 +144,7 @@ class CommandLearner:
                 del self.aliases[package]
         
         self.save()
-        print(f"🗑️ Forgot: '{query}'")
+        print(f"ðŸ—‘ï¸ Forgot: '{query}'")
         return True
 
     # -------------------------
@@ -141,7 +157,14 @@ class CommandLearner:
         Returns:
             Package name if mapping exists, None otherwise
         """
-        query_key = query.strip().lower()
+        import re
+        
+        # Sanitize query
+        query_cleaned = query.strip()
+        query_cleaned = re.sub(r'[.,;!?]+$', '', query_cleaned)
+        query_cleaned = re.sub(r'[^\w\s.-]', '', query_cleaned)
+        query_key = query_cleaned.lower()
+        
         return self.mappings.get(query_key)
 
     # -------------------------
@@ -150,11 +173,11 @@ class CommandLearner:
     def list_mappings(self) -> None:
         """Display all learned mappings."""
         if not self.mappings:
-            print("📚 No custom mappings yet. Teach me some!")
+            print("ðŸ“š No custom mappings yet. Teach me some!")
             print("   Example: 'teach google chrome' (after opening Chrome)")
             return
         
-        print(f"📚 Learned Mappings ({len(self.mappings)}):")
+        print(f"ðŸ“š Learned Mappings ({len(self.mappings)}):")
         for query, package in sorted(self.mappings.items()):
             # Get all aliases for this package
             all_aliases = self.aliases.get(package, [])
@@ -164,7 +187,7 @@ class CommandLearner:
             else:
                 alias_info = ""
             
-            print(f"  '{query}' → {package}{alias_info}")
+            print(f"  '{query}' â†’ {package}{alias_info}")
 
     def get_aliases_for(self, package: str) -> List[str]:
         """Get all user-defined aliases for a package."""
@@ -177,7 +200,7 @@ class CommandLearner:
         """
         Interactive teaching flow with confirmation.
         """
-        print(f"\n💡 Teaching mode:")
+        print(f"\nðŸ’¡ Teaching mode:")
         print(f"   When you say: '{query}'")
         print(f"   I will open: {label} ({package})")
         
@@ -185,9 +208,9 @@ class CommandLearner:
         
         if confirm in ("y", "yes"):
             self.teach(query, package, label)
-            print(f"✅ Got it! Next time you say '{query}', I'll open {label}.")
+            print(f"âœ… Got it! Next time you say '{query}', I'll open {label}.")
         else:
-            print("❌ Cancelled. No mapping saved.")
+            print("âŒ Cancelled. No mapping saved.")
 
     def suggest_teaching(self, query: str, chosen_package: str, chosen_label: str) -> None:
         """
@@ -198,6 +221,6 @@ class CommandLearner:
         if query.strip().lower() in self.mappings:
             return
         
-        print(f"\n💡 Tip: Want me to remember this?")
+        print(f"\nðŸ’¡ Tip: Want me to remember this?")
         print(f"   Type: teach {query}")
         print(f"   Then I'll always open {chosen_label} when you say '{query}'")
