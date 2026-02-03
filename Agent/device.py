@@ -69,3 +69,116 @@ class DeviceController:
             self.swipe(x, bottom, x, top, duration)
         else:
             self.swipe(x, top, x, bottom, duration)
+    
+    # ===========================
+    # VOLUME CONTROLS
+    # ===========================
+    
+    def volume_up(self, times: int = 1) -> None:
+        """Increase volume by pressing volume up button"""
+        for _ in range(times):
+            self.adb.run(["shell", "input", "keyevent", "KEYCODE_VOLUME_UP"])
+            time.sleep(0.1)
+    
+    def volume_down(self, times: int = 1) -> None:
+        """Decrease volume by pressing volume down button"""
+        for _ in range(times):
+            self.adb.run(["shell", "input", "keyevent", "KEYCODE_VOLUME_DOWN"])
+            time.sleep(0.1)
+    
+    def volume_mute(self) -> None:
+        """Mute volume"""
+        self.adb.run(["shell", "input", "keyevent", "KEYCODE_VOLUME_MUTE"])
+    
+    def get_volume(self, stream: str = "music") -> int:
+        """
+        Get current volume level.
+        
+        Args:
+            stream: "music", "alarm", "ring", "notification"
+        
+        Returns:
+            Current volume level (0-100 approximate)
+        """
+        try:
+            # Get volume using service call
+            # This is approximate since exact volume varies by device
+            out = self.adb.run(["shell", "dumpsys", "audio"])
+            
+            # Try to parse volume
+            # Pattern varies by Android version, this is best-effort
+            music_pattern = r"STREAM_MUSIC.*?index:(\d+)"
+            match = re.search(music_pattern, out, re.DOTALL)
+            
+            if match:
+                raw_vol = int(match.group(1))
+                # Typical max is 15, convert to percentage
+                return min(100, int((raw_vol / 15.0) * 100))
+            
+            return 50  # Default if can't determine
+            
+        except Exception:
+            return 50  # Default on error
+    
+    def set_volume(self, level: int, stream: str = "music") -> None:
+        """
+        Set volume to specific level.
+        
+        Args:
+            level: Volume level 0-100
+            stream: "music", "alarm", "ring" (currently only music supported)
+        """
+        level = max(0, min(100, level))  # Clamp to 0-100
+        
+        # Get current volume
+        current = self.get_volume(stream)
+        diff = level - current
+        
+        if abs(diff) < 5:
+            # Already close enough
+            return
+        
+        if diff > 0:
+            # Need to increase
+            presses = max(1, abs(diff) // 7)  # Approximate presses needed
+            self.volume_up(presses)
+        elif diff < 0:
+            # Need to decrease
+            presses = max(1, abs(diff) // 7)
+            self.volume_down(presses)
+    
+    # ===========================
+    # MEDIA CONTROLS
+    # ===========================
+    
+    def media_play_pause(self) -> None:
+        """Toggle play/pause for media"""
+        self.adb.run(["shell", "input", "keyevent", "KEYCODE_MEDIA_PLAY_PAUSE"])
+    
+    def media_play(self) -> None:
+        """Play media (if paused)"""
+        self.adb.run(["shell", "input", "keyevent", "KEYCODE_MEDIA_PLAY"])
+    
+    def media_pause(self) -> None:
+        """Pause media (if playing)"""
+        self.adb.run(["shell", "input", "keyevent", "KEYCODE_MEDIA_PAUSE"])
+    
+    def media_next(self) -> None:
+        """Next track/video"""
+        self.adb.run(["shell", "input", "keyevent", "KEYCODE_MEDIA_NEXT"])
+    
+    def media_previous(self) -> None:
+        """Previous track/video"""
+        self.adb.run(["shell", "input", "keyevent", "KEYCODE_MEDIA_PREVIOUS"])
+    
+    def media_stop(self) -> None:
+        """Stop media playback"""
+        self.adb.run(["shell", "input", "keyevent", "KEYCODE_MEDIA_STOP"])
+    
+    def media_fast_forward(self) -> None:
+        """Fast forward"""
+        self.adb.run(["shell", "input", "keyevent", "KEYCODE_MEDIA_FAST_FORWARD"])
+    
+    def media_rewind(self) -> None:
+        """Rewind"""
+        self.adb.run(["shell", "input", "keyevent", "KEYCODE_MEDIA_REWIND"])
