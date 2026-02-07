@@ -30,10 +30,10 @@ try:
         for path in possible_paths:
             if os.path.exists(path):
                 pytesseract.pytesseract.tesseract_cmd = path
-                print(f"✅ Tesseract found at: {path}")
+                print(f"âœ… Tesseract found at: {path}")
                 break
         else:
-            print("⚠️ Tesseract not found in standard locations.")
+            print("âš ï¸ Tesseract not found in standard locations.")
             print("   Please set path manually in ocr_engine.py")
             print("   Or install from: https://github.com/UB-Mannheim/tesseract/wiki")
     # ===== END WINDOWS CONFIGURATION =====
@@ -41,7 +41,7 @@ try:
     TESSERACT_AVAILABLE = True
 except ImportError:
     TESSERACT_AVAILABLE = False
-    print("⚠️ pytesseract not installed. OCR features disabled.")
+    print("âš ï¸ pytesseract not installed. OCR features disabled.")
     print("   Install: pip install pytesseract")
 
 
@@ -92,7 +92,7 @@ class OCREngine:
             List of OCRMatch objects
         """
         if not self.available:
-            print("⚠️ OCR not available (pytesseract not installed)")
+            print("âš ï¸ OCR not available (pytesseract not installed)")
             return []
         
         try:
@@ -117,7 +117,7 @@ class OCREngine:
             return self._parse_ocr_data(ocr_data)
             
         except Exception as e:
-            print(f"⚠️ OCR extraction failed: {e}")
+            print(f"âš ï¸ OCR extraction failed: {e}")
             return []
     
     def _parse_ocr_data(self, ocr_data: dict) -> List[OCRMatch]:
@@ -341,5 +341,5 @@ class OCREngine:
             cv2.imwrite(output_path, denoised)
             
         except ImportError:
-            print("⚠️ opencv-python not installed. Skipping preprocessing.")
+            print("âš ï¸ opencv-python not installed. Skipping preprocessing.")
             print("   Install: pip install opencv-python")

@@ -161,7 +161,7 @@ class QueryRouter:
     def _parse_scroll_find_query(self, query: str) -> QueryIntent:
         """Parse scroll-and-find queries"""
         # Extract what to find
-        # "scroll until you find X" → target = X
+        # "scroll until you find X" â†’ target = X
         match = re.search(r'(scroll until|find by scrolling|search for)\s+(.+)', query.lower())
         
         if match:

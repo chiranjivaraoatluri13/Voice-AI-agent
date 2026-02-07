@@ -1,5 +1,5 @@
 # =========================
-# FILE: agent/schema.py (COMPLETE WORKING VERSION)
+# FILE: agent/schema.py (COMPLETE)
 # =========================
 from dataclasses import dataclass
 from typing import Optional, Literal
@@ -39,6 +39,8 @@ Action = Literal[
     "MEDIA_PREVIOUS",
     "MEDIA_FAST_FORWARD",
     "MEDIA_REWIND",
+    # Complex multi-step tasks (NEW)
+    "COMPLEX_TASK",
 ]
 
 @dataclass

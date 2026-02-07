@@ -1,9 +1,9 @@
 # =========================
-# FILE: agent/controller_vision.py
+# FILE: agent/controller.py
 # =========================
 """
 Complete controller integrating:
-- App management
+- App management (with LabelLoader for complete label coverage)
 - Device control
 - Learning system
 - Vision capabilities (UI Automator + OCR + Ollama)
@@ -33,7 +33,7 @@ def run_cli() -> None:
     device = DeviceController(adb)
     learner = CommandLearner()
     apps = AppResolver(adb, learner)
-    screen = ScreenController(adb, device)  # NEW: Vision system
+    screen = ScreenController(adb, device)
 
     device.wake()
 
@@ -45,11 +45,21 @@ def run_cli() -> None:
     except Exception:
         print("⚠️ Could not determine screen size")
 
-    # Load apps
-    print("📦 Loading app list...")
-    apps.refresh_packages()
-    print(f"✅ App list ready: {len(apps.packages)} packages")
+    # =====================================================
+    # Initialize app database (label cache + extracted labels + dumpsys)
+    # =====================================================
+    print("📦 Initializing app database...")
+    stats = apps.initialize()
     
+    print(f"✅ App database ready:")
+    print(f"   Total apps:        {stats['total']}")
+    print(f"   Labels cached:     {stats['cached']}")
+    if stats['extracted'] > 0:
+        print(f"   APK-extracted:     {stats['extracted']} (from app_labels_map.txt)")
+    if stats['missing'] > 0:
+        print(f"   Missing labels:    {stats['missing']} (run extract_app_labels.ps1)")
+    print(f"   Init time:         {stats['time_ms']}ms")
+
     # Load user mappings
     if learner.mappings:
         print(f"🎓 Loaded {len(learner.mappings)} custom mapping(s)")
@@ -61,7 +71,7 @@ def run_cli() -> None:
         print("⚠️ Vision system not available (install: ollama pull llava-phi3)")
     
     if screen.ocr.available:
-        print("📝 OCR system ready")
+        print("🔍 OCR system ready")
     else:
         print("⚠️ OCR not available (install: pip install pytesseract)")
 
@@ -76,9 +86,10 @@ def run_cli() -> None:
     print("  scroll down / scroll up")
     
     print("\n🎯 App Control:")
-    print("  open gmail / open youtube")
+    print("  open canvas / open chatgpt / open spacedesk")
+    print("  open gmail / open youtube / open gemini")
     print("  find gmail")
-    print("  reindex apps")
+    print("  reindex apps            → full refresh + re-read labels")
     
     print("\n🎓 Learning:")
     print("  teach                    → teach last app")
@@ -86,7 +97,7 @@ def run_cli() -> None:
     print("  forget google            → remove mapping")
     print("  list mappings            → show shortcuts")
     
-    print("\n👁️ Vision Queries (NEW!):")
+    print("\n👁️ Vision Queries:")
     print("  what do you see?         → describe screen")
     print("  click Subscribe          → find and click")
     print("  tap the first video      → position-based")
@@ -141,12 +152,10 @@ def execute_command(
         print("🔍 Analyzing screen...")
         query = cmd.query or "what do you see?"
         
-        # Use intent system
         intent = screen.router.parse_query(query)
         if intent.type == "INFO":
             screen._execute_info(intent)
         else:
-            # Fallback: direct vision query
             answer = screen.ask(query)
             print(f"\n📱 {answer}\n")
         return
@@ -246,11 +255,20 @@ def execute_command(
             device.scroll_once(direction)
         return
 
+    # =====================================================
+    # REINDEX: clears cache and re-reads all sources
+    # =====================================================
     if cmd.action == "REINDEX_APPS":
-        print("📦 Refreshing app list...")
-        apps.refresh_packages()
-        apps.label_cache.clear()
-        print(f"✅ App list refreshed: {len(apps.packages)} packages")
+        print("🔄 Full reindex: clearing cache and re-reading all label sources...")
+        stats = apps.full_reindex()
+        print(f"✅ Reindex complete:")
+        print(f"   Total apps:      {stats['total']}")
+        print(f"   Labels cached:   {stats['cached']}")
+        if stats['extracted'] > 0:
+            print(f"   APK-extracted:   {stats['extracted']}")
+        if stats['missing'] > 0:
+            print(f"   Missing labels:  {stats['missing']}")
+        print(f"   Time:            {stats['time_ms']}ms")
         return
 
     if cmd.action == "FIND_APP":

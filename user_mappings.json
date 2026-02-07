@@ -1,39 +1,6 @@
 {
-  "mappings": {
-    "oopen": "com.android.chrome",
-    "google": "com.android.chrome"
-  },
-  "aliases": {
-    "com.android.chrome": [
-      "oopen",
-      "google"
-    ]
-  },
-  "history": [
-    {
-      "timestamp": "2026-02-01T17:16:51.027030",
-      "query": "chrome",
-      "package": "com.android.chrome",
-      "label": "Chrome"
-    },
-    {
-      "timestamp": "2026-02-01T17:17:12.481288",
-      "query": "google",
-      "package": "com.android.chrome",
-      "label": "Chrome"
-    },
-    {
-      "timestamp": "2026-02-02T22:09:40.870936",
-      "query": "oopen",
-      "package": "com.android.chrome",
-      "label": "Chrome"
-    },
-    {
-      "timestamp": "2026-02-02T22:10:25.842803",
-      "query": "google",
-      "package": "com.android.chrome",
-      "label": "Chrome"
-    }
-  ],
-  "last_updated": "2026-02-02T22:10:25.842825"
+  "mappings": {},
+  "aliases": {},
+  "history": [],
+  "last_updated": null
 }

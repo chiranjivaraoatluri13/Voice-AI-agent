@@ -74,10 +74,6 @@ class UIAnalyzer:
             # Pull to local
             xml_content = self.adb.run(["shell", "cat", "/sdcard/ui_dump.xml"])
             
-            # Validate content
-            if not xml_content or not xml_content.strip():
-                raise ValueError("Empty UI dump received")
-            
             # Parse XML
             self.last_tree = ET.fromstring(xml_content)
             
@@ -85,7 +81,7 @@ class UIAnalyzer:
             self.last_elements = self._parse_tree(self.last_tree)
             
         except Exception as e:
-            print(f"⚠️ UI tree capture failed: {e}")
+            print(f"âš ï¸ UI tree capture failed: {e}")
             self.last_tree = None
             self.last_elements = []
     
