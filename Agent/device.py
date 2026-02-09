@@ -1,5 +1,5 @@
 # =========================
-# FILE: agent/device.py (COMPLETE)
+# FILE: agent/device.py
 # =========================
 import re
 import time
@@ -10,10 +10,6 @@ class DeviceController:
     def __init__(self, adb: AdbClient) -> None:
         self.adb = adb
 
-    # ===========================
-    # Basic Controls
-    # ===========================
-    
     def wake(self) -> None:
         try:
             self.adb.run(["shell", "input", "keyevent", "KEYCODE_WAKEUP"])
@@ -36,6 +32,7 @@ class DeviceController:
         self.adb.run(["shell", "input", "text", text.replace(" ", "%s")])
 
     def launch(self, package: str) -> None:
+        # monkey is simple and widely supported
         self.adb.run(["shell", "monkey", "-p", package, "-c", "android.intent.category.LAUNCHER", "1"])
         time.sleep(0.6)
 
@@ -51,7 +48,10 @@ class DeviceController:
         time.sleep(0.18)
 
     def scroll_once(self, direction: Literal["UP", "DOWN"]) -> None:
-        """Single swipe, size-agnostic."""
+        """
+        Single swipe, size-agnostic.
+        (Landscape scroll-down edge cases can be handled later.)
+        """
         w, h = self.screen_size()
         is_landscape = w > h
         x = w // 2
@@ -69,83 +69,37 @@ class DeviceController:
             self.swipe(x, bottom, x, top, duration)
         else:
             self.swipe(x, top, x, bottom, duration)
-    
-    # ===========================
+
+    # -------------------------
+    # Media Controls
+    # -------------------------
+    def media_play(self) -> None:
+        self.adb.run(["shell", "input", "keyevent", "KEYCODE_MEDIA_PLAY"])
+
+    def media_pause(self) -> None:
+        self.adb.run(["shell", "input", "keyevent", "KEYCODE_MEDIA_PAUSE"])
+
+    def media_play_pause(self) -> None:
+        self.adb.run(["shell", "input", "keyevent", "KEYCODE_MEDIA_PLAY_PAUSE"])
+
+    def media_next(self) -> None:
+        self.adb.run(["shell", "input", "keyevent", "KEYCODE_MEDIA_NEXT"])
+
+    def media_previous(self) -> None:
+        self.adb.run(["shell", "input", "keyevent", "KEYCODE_MEDIA_PREVIOUS"])
+
+    # -------------------------
     # Volume Controls
-    # ===========================
-    
-    def volume_up(self, times: int = 1) -> None:
-        """Increase volume"""
-        for _ in range(times):
+    # -------------------------
+    def volume_up(self, steps: int = 1) -> None:
+        for _ in range(steps):
             self.adb.run(["shell", "input", "keyevent", "KEYCODE_VOLUME_UP"])
             time.sleep(0.1)
-    
-    def volume_down(self, times: int = 1) -> None:
-        """Decrease volume"""
-        for _ in range(times):
+
+    def volume_down(self, steps: int = 1) -> None:
+        for _ in range(steps):
             self.adb.run(["shell", "input", "keyevent", "KEYCODE_VOLUME_DOWN"])
             time.sleep(0.1)
-    
+
     def volume_mute(self) -> None:
-        """Mute audio"""
         self.adb.run(["shell", "input", "keyevent", "KEYCODE_VOLUME_MUTE"])
-    
-    def get_volume(self) -> int:
-        """Get current volume level (0-100)"""
-        try:
-            out = self.adb.run(["shell", "dumpsys", "audio"])
-            # Parse volume from dumpsys output
-            match = re.search(r'- STREAM_MUSIC:.*?mIndex: (\d+)', out)
-            if match:
-                return int(match.group(1))
-        except Exception:
-            pass
-        return 50  # Default fallback
-    
-    def set_volume(self, level: int) -> None:
-        """Set volume to specific level (0-100 percentage)"""
-        current = self.get_volume()
-        target = max(0, min(100, level))
-        
-        if target > current:
-            diff = (target - current) // 7  # Rough conversion
-            self.volume_up(max(1, diff))
-        elif target < current:
-            diff = (current - target) // 7
-            self.volume_down(max(1, diff))
-    
-    # ===========================
-    # Media Controls
-    # ===========================
-    
-    def media_play(self) -> None:
-        """Play/resume media"""
-        self.adb.run(["shell", "input", "keyevent", "KEYCODE_MEDIA_PLAY"])
-    
-    def media_pause(self) -> None:
-        """Pause media"""
-        self.adb.run(["shell", "input", "keyevent", "KEYCODE_MEDIA_PAUSE"])
-    
-    def media_play_pause(self) -> None:
-        """Toggle play/pause"""
-        self.adb.run(["shell", "input", "keyevent", "KEYCODE_MEDIA_PLAY_PAUSE"])
-    
-    def media_stop(self) -> None:
-        """Stop media playback"""
-        self.adb.run(["shell", "input", "keyevent", "KEYCODE_MEDIA_STOP"])
-    
-    def media_next(self) -> None:
-        """Next track/video"""
-        self.adb.run(["shell", "input", "keyevent", "KEYCODE_MEDIA_NEXT"])
-    
-    def media_previous(self) -> None:
-        """Previous track/video"""
-        self.adb.run(["shell", "input", "keyevent", "KEYCODE_MEDIA_PREVIOUS"])
-    
-    def media_fast_forward(self) -> None:
-        """Fast forward"""
-        self.adb.run(["shell", "input", "keyevent", "KEYCODE_MEDIA_FAST_FORWARD"])
-    
-    def media_rewind(self) -> None:
-        """Rewind"""
-        self.adb.run(["shell", "input", "keyevent", "KEYCODE_MEDIA_REWIND"])

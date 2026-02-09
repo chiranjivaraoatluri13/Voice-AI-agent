@@ -250,29 +250,10 @@ class IntentEngine:
                     confidence=0.9
                 )
         
-        # ===== MEDIA CONTROLS =====
-        if any(kw in t for kw in ["pause", "stop", "halt"]):
-            return Intent(primary_action="media_pause", confidence=0.95)
-        
-        if any(kw in t for kw in ["play", "resume", "continue", "unpause"]):
-            return Intent(primary_action="media_play", confidence=0.95)
-        
-        if any(kw in t for kw in ["next", "skip"]):
-            return Intent(primary_action="media_next", confidence=0.95)
-        
-        # ===== VOLUME =====
-        if any(kw in t for kw in ["louder", "turn up", "increase volume"]):
-            amount = 5 if any(w in t for w in ["lot", "max"]) else 1
-            return Intent(primary_action="volume_up", modifiers={'amount': amount}, confidence=0.95)
-        
-        if any(kw in t for kw in ["quieter", "turn down", "decrease volume"]):
-            amount = 5 if any(w in t for w in ["lot"]) else 1
-            return Intent(primary_action="volume_down", modifiers={'amount': amount}, confidence=0.95)
-        
-        # ===== APP OPENING =====
-        # "open youtube"
-        # "launch instagram"
-        # "start whatsapp"
+        # ===== APP OPENING (must be ABOVE media controls) =====
+        # "open youtube", "launch instagram", "open google play store"
+        # This MUST come before media checks because "open play store"
+        # would otherwise match "play" as media_play.
         
         app_open_patterns = [
             r'(?:open|launch|start|run)\s+(.+)',
@@ -288,6 +269,50 @@ class IntentEngine:
                     app=app,
                     confidence=0.9
                 )
+        
+        # ===== MEDIA CONTROLS =====
+        # Only match when NOT preceded by "open", "launch", etc.
+        if any(kw in t for kw in ["pause", "stop", "halt"]):
+            return Intent(primary_action="media_pause", confidence=0.95)
+        
+        # "play" only as standalone command or "play music/video", NOT "play store"
+        if re.search(r'\b(?:play|resume|continue|unpause)\b', t):
+            # Don't trigger for app names containing "play"
+            if not any(app_word in t for app_word in ["play store", "playstore", "google play"]):
+                return Intent(primary_action="media_play", confidence=0.95)
+        
+        if any(kw in t for kw in ["next", "skip", "next track", "next song"]):
+            return Intent(primary_action="media_next", confidence=0.95)
+        
+        if any(kw in t for kw in ["previous", "prev", "previous track", "previous song"]):
+            return Intent(primary_action="media_previous", confidence=0.95)
+        
+        # ===== VOLUME =====
+        # Covers: "volume up", "volume increase", "sound up", "louder", "turn up",
+        #         "increase volume", "raise volume", "sound increase", "sound higher"
+        volume_up_kw = [
+            "volume up", "volume increase", "increase volume", "raise volume",
+            "sound up", "sound increase", "sound higher",
+            "louder", "turn up", "crank up",
+        ]
+        if any(kw in t for kw in volume_up_kw):
+            amount = 5 if any(w in t for w in ["lot", "max", "full"]) else 2
+            return Intent(primary_action="volume_up", modifiers={'amount': amount}, confidence=0.95)
+        
+        # Covers: "volume down", "volume decrease", "sound down", "quieter", "turn down",
+        #         "decrease volume", "lower volume", "sound decrease", "sound lower"
+        volume_down_kw = [
+            "volume down", "volume decrease", "decrease volume", "lower volume",
+            "sound down", "sound decrease", "sound lower",
+            "quieter", "turn down",
+        ]
+        if any(kw in t for kw in volume_down_kw):
+            amount = 5 if any(w in t for w in ["lot", "min"]) else 2
+            return Intent(primary_action="volume_down", modifiers={'amount': amount}, confidence=0.95)
+        
+        # Mute
+        if any(kw in t for kw in ["mute", "silence", "shut up"]):
+            return Intent(primary_action="volume_down", modifiers={'amount': 10}, confidence=0.95)
         
         # ===== NAVIGATION =====
         if t in ["home", "go home", "home screen"]:

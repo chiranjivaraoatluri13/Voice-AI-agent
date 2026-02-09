@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-import json
 import os
-import re
 import time
 from difflib import SequenceMatcher
 from typing import List, Tuple, Optional, Dict
-from datetime import datetime
 
 from agent.adb import AdbClient
 from agent.learner import CommandLearner
-from agent.label_loader import LabelLoader
+from agent.label_loader import LabelLoader, PackageInstallListener
 
 # -------------------------
 # Known system app fallbacks (fast path)
@@ -137,14 +134,14 @@ SYSTEM_FALLBACKS = {
 class AppResolver:
     """
     Fast + explainable app resolution with:
-    - LabelLoader for complete label coverage (extracted + dumpsys + cache)
-    - Persistent disk cache (labels survive restarts)
-    - Startup diffing (only fetch labels for NEW apps)
+    - LabelLoader for complete label coverage (aapt2 + dumpsys + cache)
+    - Auto-generation of app_labels_map.txt on first launch
+    - Background listener for real-time install/uninstall detection
     - System fallbacks for common apps
     - User-trained mappings via CommandLearner
     
     LATENCY FIX: All labels are pre-loaded at startup.
-    NO dumpsys calls happen during search. This must be preserved.
+    NO dumpsys/aapt2 calls happen during search. This must be preserved.
     """
 
     def __init__(self, adb: AdbClient, learner: Optional[CommandLearner] = None) -> None:
@@ -152,26 +149,23 @@ class AppResolver:
         self.packages: List[str] = []
         self.label_cache: Dict[str, str] = {}
         self.label_loader = LabelLoader(adb)
+        self.install_listener: Optional[PackageInstallListener] = None
         # Learning system
         self.learner = learner if learner else CommandLearner()
-        self.last_choice: Optional[Tuple[str, str, str]] = None  # (query, package, label)
+        self.last_choice: Optional[Tuple[str, str, str]] = None
 
     # ==========================================================
-    # STARTUP: Full initialization (call once at startup)
+    # STARTUP: Full initialization
     # ==========================================================
     def initialize(self) -> dict:
         """
         Full startup initialization:
         1. Fetch current package list from device
-        2. Use LabelLoader to build complete label map:
-           - Load disk cache (instant)
-           - Load extracted labels from app_labels_map.txt (highest priority)
-           - Batch dumpsys for uncovered apps
-           - Package name fallback for anything remaining
-        3. Save merged cache to disk
+        2. Use LabelLoader to build complete label map
+        3. Start background install listener
         
         Returns:
-            dict with stats: {total, cached, extracted, missing, time_ms}
+            dict with stats
         """
         start = time.time()
         stats = {
@@ -180,36 +174,76 @@ class AppResolver:
             "extracted": 0,
             "missing": 0,
             "time_ms": 0,
+            "first_launch": False,
         }
+
+        # Check if this is first launch
+        stats["first_launch"] = not os.path.exists(self.label_loader.extracted_file)
 
         # Step 1: Fetch current package list
         self.refresh_packages()
         current_packages = set(self.packages)
         stats["total"] = len(current_packages)
 
-        # Step 2: Use LabelLoader to build complete label map
+        # Step 2: Build complete label map (auto-generates on first launch)
         self.label_cache = self.label_loader.initialize(current_packages)
 
         # Step 3: Gather stats
         stats["extracted"] = len(self.label_loader.extracted_labels)
         stats["cached"] = len(self.label_cache)
 
-        # Step 4: Check for apps with only fallback labels
         missing = self.label_loader.get_missing_labels(current_packages)
         stats["missing"] = len(missing)
 
         elapsed = (time.time() - start) * 1000
         stats["time_ms"] = round(elapsed)
 
-        # Report missing labels
         if missing:
-            print(f"\n⚠️ {len(missing)} app(s) have no real label (using package name):")
+            print(f"\n⚠️ {len(missing)} app(s) have no real label:")
             for pkg in sorted(missing):
                 fallback = self.label_cache.get(pkg, pkg)
                 print(f"   {fallback} ({pkg})")
-            print(f"   💡 Run extract_app_labels.ps1 to fix these\n")
+            print()
+
+        # Step 4: Start background install listener
+        self._start_install_listener()
 
         return stats
+
+    # ==========================================================
+    # BACKGROUND INSTALL LISTENER
+    # ==========================================================
+    def _start_install_listener(self) -> None:
+        """Start background listener for app installs/uninstalls."""
+        try:
+            self.install_listener = PackageInstallListener(
+                adb=self.adb,
+                label_loader=self.label_loader,
+                on_change=self._on_package_change
+            )
+            self.install_listener.start(initial_packages=set(self.packages))
+        except Exception as e:
+            print(f"⚠️ Could not start install listener: {e}")
+
+    def _on_package_change(self, event: str, pkg: str, label: str) -> None:
+        """
+        Callback when an app is installed or removed.
+        Updates in-memory state so the app is immediately accessible.
+        """
+        if event == "installed":
+            # Add to packages list and label cache
+            if pkg not in self.packages:
+                self.packages.append(pkg)
+                self.packages.sort()
+            self.label_cache[pkg] = label
+            print(f"   📱 '{label}' is now available — say 'open {label.lower()}'")
+
+        elif event == "removed":
+            # Remove from packages list and label cache
+            if pkg in self.packages:
+                self.packages.remove(pkg)
+            self.label_cache.pop(pkg, None)
+            print(f"   📱 '{label}' removed from app list")
 
     # ==========================================================
     # PACKAGE DISCOVERY
@@ -218,33 +252,24 @@ class AppResolver:
         """Fetch all launchable packages from device."""
         out = self.adb.run(
             [
-                "shell",
-                "cmd",
-                "package",
-                "query-activities",
-                "--brief",
-                "-a",
-                "android.intent.action.MAIN",
-                "-c",
-                "android.intent.category.LAUNCHER",
+                "shell", "cmd", "package", "query-activities",
+                "--brief", "-a", "android.intent.action.MAIN",
+                "-c", "android.intent.category.LAUNCHER",
             ]
         )
-
         pkgs = set()
         for line in out.splitlines():
             line = line.strip()
             if "/" in line:
                 pkgs.add(line.split("/")[0])
-
         self.packages = sorted(pkgs)
 
     def full_reindex(self) -> dict:
-        """
-        Force a complete reindex: clear cache and re-fetch everything.
-        Use when apps have been updated/renamed or after running extract_app_labels.ps1.
-        """
-        print("🔄 Full reindex: clearing cache...")
-        self.label_loader.clear_cache()
+        """Force complete reindex: clear everything and re-extract."""
+        print("🔄 Full reindex: clearing all caches...")
+        if self.install_listener:
+            self.install_listener.stop()
+        self.label_loader.clear_all()
         self.label_cache.clear()
         return self.initialize()
 
@@ -253,14 +278,11 @@ class AppResolver:
     # ==========================================================
     def _label_for(self, pkg: str) -> str:
         """
-        Get label for a package.
         ALWAYS a cache hit after initialize().
-        NO ADB CALLS — this is critical for the latency fix.
+        NO ADB CALLS — critical for latency fix.
         """
         if pkg in self.label_cache:
             return self.label_cache[pkg]
-
-        # Fallback (should rarely happen after initialize)
         return LabelLoader.label_from_package_name(pkg)
 
     # ==========================================================
@@ -277,7 +299,6 @@ class AppResolver:
         key = query.strip().lower()
         if key not in SYSTEM_FALLBACKS:
             return None
-
         for pkg in SYSTEM_FALLBACKS[key]:
             if self._installed(pkg):
                 print(f"📱 Using system fallback: {pkg}")
@@ -285,17 +306,13 @@ class AppResolver:
         return None
 
     # ==========================================================
-    # CANDIDATE SEARCH (uses cached real labels — NO ADB calls)
+    # CANDIDATE SEARCH (cached labels — NO ADB calls)
     # ==========================================================
     def candidates(
         self, query: str, limit: int = 7
     ) -> List[Tuple[float, str, str]]:
         """
-        Find candidate apps matching query.
-        Uses REAL labels from cache — no dumpsys during search.
-        
-        LATENCY: This runs in milliseconds because all labels
-        are pre-loaded in self.label_cache at startup.
+        LATENCY: Runs in milliseconds — all labels pre-loaded.
         """
         q = query.strip().lower()
         if not q:
@@ -307,15 +324,11 @@ class AppResolver:
         scored: List[Tuple[float, str, str]] = []
 
         for pkg in self.packages:
-            # Always use real label from cache
             label = self.label_cache.get(pkg, LabelLoader.label_from_package_name(pkg))
             lab = label.lower()
 
-            # Score: fuzzy match + substring bonus
             s_fuzzy = SequenceMatcher(None, q, lab).ratio()
             s_sub = 0.15 if q in lab else 0.0
-
-            # Also check against full package name for partial matches
             s_pkg = 0.10 if q in pkg.lower() else 0.0
 
             score = min(1.0, s_fuzzy + s_sub + s_pkg)
@@ -325,18 +338,16 @@ class AppResolver:
         return scored[:limit]
 
     # ==========================================================
-    # RESOLVE OR ASK (with learning)
+    # RESOLVE OR ASK
     # ==========================================================
     def resolve_or_ask(self, query: str, allow_learning: bool = True) -> Optional[str]:
         q = query.strip()
         if not q:
             return None
 
-        # Direct package
         if "." in q and " " not in q:
             return q
 
-        # Check user-trained mappings FIRST
         learned_pkg = self.learner.resolve(q)
         if learned_pkg:
             label = self._label_for(learned_pkg)
@@ -344,7 +355,6 @@ class AppResolver:
             self.last_choice = (q, learned_pkg, label)
             return learned_pkg
 
-        # System fallback
         fb = self.try_system_fallback(q)
         if fb:
             label = self._label_for(fb)
@@ -357,16 +367,28 @@ class AppResolver:
             return None
 
         top_score, top_label, top_pkg = cands[0]
+        second_score = cands[1][0] if len(cands) > 1 else 0.0
+        gap = top_score - second_score
 
-        # Auto-select if confident
-        if top_score >= 0.78 and (
-            len(cands) == 1 or top_score - cands[1][0] >= 0.10
-        ):
+        # HIGH confidence: auto-open
+        if top_score >= 0.78 and (len(cands) == 1 or gap >= 0.10):
             print(f"✅ Opening: {top_label} ({top_pkg})")
             self.last_choice = (q, top_pkg, top_label)
             return top_pkg
 
-        # Ask user to choose
+        # MEDIUM confidence: likely match — ask simple yes/no
+        # Triggers for partial names like "play" → "Google Play Store"
+        if top_score >= 0.55 and gap >= 0.08:
+            confirm = input(f"🤔 Did you mean {top_label}? (y/n): ").strip().lower()
+            if confirm in ("y", "yes"):
+                print(f"✅ Opening: {top_label} ({top_pkg})")
+                self.last_choice = (q, top_pkg, top_label)
+                if allow_learning:
+                    self.learner.suggest_teaching(q, top_pkg, top_label)
+                return top_pkg
+            # User said no — fall through to full list below
+
+        # LOW confidence: show full list
         print(f"🤔 I found multiple possible matches for '{q}'. Which one should I open?")
         for i, (score, label, pkg) in enumerate(cands, 1):
             aliases = self.learner.get_aliases_for(pkg)
@@ -387,23 +409,20 @@ class AppResolver:
             _, label, pkg = cands[n - 1]
             print(f"✅ Opening: {label} ({pkg})")
             self.last_choice = (q, pkg, label)
-
             if allow_learning:
                 self.learner.suggest_teaching(q, pkg, label)
-
             return pkg
 
         print("❌ Invalid choice.")
         return None
 
     # ==========================================================
-    # TEACHING INTERFACE
+    # TEACHING
     # ==========================================================
     def teach_last(self) -> bool:
         if not self.last_choice:
             print("❌ No recent app selection to teach.")
             return False
-
         query, package, label = self.last_choice
         self.learner.interactive_teach(query, package, label)
         return True
@@ -412,7 +431,6 @@ class AppResolver:
         pkg = self.resolve_or_ask(query, allow_learning=False)
         if not pkg:
             return False
-
         label = self._label_for(pkg)
         self.learner.teach(shortcut, pkg, label)
         return True

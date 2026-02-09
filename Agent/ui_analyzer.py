@@ -196,9 +196,10 @@ class UIAnalyzer:
     def search(self, query: str) -> List[UIElement]:
         """
         Smart search across text, ID, and description.
-        Returns ranked results.
+        ALWAYS refreshes UI tree (screen may have changed after scroll).
+        Returns ranked results, preferring elements with actual text.
         """
-        self.capture_ui_tree()
+        self.capture_ui_tree(force_refresh=True)
         
         query_lower = query.lower()
         scored_results = []
@@ -225,6 +226,13 @@ class UIAnalyzer:
             # Boost clickable elements
             if elem.clickable:
                 score += 10
+            
+            # PENALIZE containers with no text (LinearLayout, FrameLayout, etc.)
+            # These often match via clickable boost alone and cause wrong taps
+            if score > 0 and not elem.text and not elem.content_desc:
+                container_classes = ["Layout", "ViewGroup", "RecyclerView", "ScrollView"]
+                if any(c in elem.class_name for c in container_classes):
+                    score -= 15  # Push below text-bearing elements
             
             if score > 0:
                 scored_results.append((score, elem))

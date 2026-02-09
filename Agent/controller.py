@@ -3,7 +3,7 @@
 # =========================
 """
 Complete controller integrating:
-- App management (with LabelLoader for complete label coverage)
+- App management (auto aapt2 extraction + install listener)
 - Device control
 - Learning system
 - Vision capabilities (UI Automator + OCR + Ollama)
@@ -46,19 +46,37 @@ def run_cli() -> None:
         print("⚠️ Could not determine screen size")
 
     # =====================================================
-    # Initialize app database (label cache + extracted labels + dumpsys)
+    # Initialize app database
+    # On first launch: auto-extracts ALL labels via aapt2
+    # On subsequent launches: loads from cache, extracts only new apps
+    # Also starts background listener for real-time install detection
     # =====================================================
-    print("📦 Initializing app database...")
+    print("\n📦 Initializing app database...")
     stats = apps.initialize()
+    
+    if stats.get("first_launch"):
+        print(f"\n🎉 First launch setup complete!")
     
     print(f"✅ App database ready:")
     print(f"   Total apps:        {stats['total']}")
-    print(f"   Labels cached:     {stats['cached']}")
+    print(f"   Labels available:  {stats['cached']}")
     if stats['extracted'] > 0:
-        print(f"   APK-extracted:     {stats['extracted']} (from app_labels_map.txt)")
+        print(f"   APK-extracted:     {stats['extracted']}")
     if stats['missing'] > 0:
-        print(f"   Missing labels:    {stats['missing']} (run extract_app_labels.ps1)")
+        print(f"   Missing labels:    {stats['missing']}")
     print(f"   Init time:         {stats['time_ms']}ms")
+
+    # aapt2 status
+    if apps.label_loader.aapt2_path:
+        print(f"   🔧 aapt2:          available")
+    else:
+        print(f"   ⚠️ aapt2:          not found (new app labels may be limited)")
+
+    # Install listener status
+    if apps.install_listener and apps.install_listener._running:
+        print(f"   👂 Install listener: active (new apps auto-detected)")
+    else:
+        print(f"   ⚠️ Install listener: not running")
 
     # Load user mappings
     if learner.mappings:
@@ -86,28 +104,27 @@ def run_cli() -> None:
     print("  scroll down / scroll up")
     
     print("\n🎯 App Control:")
-    print("  open canvas / open chatgpt / open spacedesk")
+    print("  open canvas / open chatgpt / open ludo king")
     print("  open gmail / open youtube / open gemini")
     print("  find gmail")
-    print("  reindex apps            → full refresh + re-read labels")
+    print("  reindex apps         → full re-extract all labels")
     
     print("\n🎓 Learning:")
-    print("  teach                    → teach last app")
-    print("  teach google chrome      → 'google' = Chrome")
-    print("  forget google            → remove mapping")
-    print("  list mappings            → show shortcuts")
+    print("  teach                → teach last app")
+    print("  teach google chrome  → 'google' = Chrome")
+    print("  forget google        → remove mapping")
+    print("  list mappings        → show shortcuts")
     
     print("\n👁️ Vision Queries:")
-    print("  what do you see?         → describe screen")
-    print("  click Subscribe          → find and click")
-    print("  tap the first video      → position-based")
-    print("  click the red button     → visual search")
-    print("  open pin with red car    → complex visual")
-    print("  scroll until you find X  → scroll and search")
+    print("  what do you see?     → describe screen")
+    print("  click Subscribe      → find and click")
+    print("  tap the first video  → position-based")
+    print("  click the red button → visual search")
     
     print("\n📋 Other:")
     print("  exit")
-    print("="*60 + "\n")
+    print("="*60)
+    print("\n💡 New apps installed while running are auto-detected!\n")
 
     while True:
         try:
@@ -122,12 +139,17 @@ def run_cli() -> None:
                 continue
 
             if cmd.action == "EXIT":
+                # Cleanup
+                if apps.install_listener:
+                    apps.install_listener.stop()
                 print("Stopping.")
                 break
 
             execute_command(cmd, device, apps, learner, screen)
             
         except KeyboardInterrupt:
+            if apps.install_listener:
+                apps.install_listener.stop()
             print("\n\nStopping.")
             break
         except Exception as e:
@@ -253,17 +275,20 @@ def execute_command(
         direction = cmd.direction or "DOWN"
         for _ in range(amt):
             device.scroll_once(direction)
+        # Invalidate UI tree cache — screen content changed
+        screen.ui_analyzer.last_tree = None
+        screen.ui_analyzer.last_elements = []
         return
 
     # =====================================================
-    # REINDEX: clears cache and re-reads all sources
+    # REINDEX: Full re-extraction of all labels
     # =====================================================
     if cmd.action == "REINDEX_APPS":
-        print("🔄 Full reindex: clearing cache and re-reading all label sources...")
+        print("🔄 Full reindex: clearing all caches and re-extracting...")
         stats = apps.full_reindex()
         print(f"✅ Reindex complete:")
         print(f"   Total apps:      {stats['total']}")
-        print(f"   Labels cached:   {stats['cached']}")
+        print(f"   Labels available: {stats['cached']}")
         if stats['extracted'] > 0:
             print(f"   APK-extracted:   {stats['extracted']}")
         if stats['missing'] > 0:
@@ -290,6 +315,44 @@ def execute_command(
         if not pkg:
             return
         device.launch(pkg)
+        return
+
+    # ==================
+    # Media Controls
+    # ==================
+    if cmd.action == "MEDIA_PLAY":
+        device.media_play()
+        print("▶️ Play")
+        return
+
+    if cmd.action == "MEDIA_PAUSE":
+        device.media_pause()
+        print("⏸️ Paused")
+        return
+
+    if cmd.action == "MEDIA_NEXT":
+        device.media_next()
+        print("⏭️ Next track")
+        return
+
+    if cmd.action == "MEDIA_PREVIOUS":
+        device.media_previous()
+        print("⏮️ Previous track")
+        return
+
+    # ==================
+    # Volume Controls
+    # ==================
+    if cmd.action == "VOLUME_UP":
+        steps = cmd.amount if cmd.amount > 1 else 2
+        device.volume_up(steps)
+        print(f"🔊 Volume up ({steps} steps)")
+        return
+
+    if cmd.action == "VOLUME_DOWN":
+        steps = cmd.amount if cmd.amount > 1 else 2
+        device.volume_down(steps)
+        print(f"🔉 Volume down ({steps} steps)")
         return
 
     print(f"⚠️ Unhandled command: {cmd}")

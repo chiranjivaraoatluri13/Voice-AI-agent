@@ -1,5 +1,5 @@
 # =========================
-# FILE: agent/schema.py (COMPLETE)
+# FILE: agent/schema.py
 # =========================
 from dataclasses import dataclass
 from typing import Optional, Literal
@@ -16,40 +16,36 @@ Action = Literal[
     "REINDEX_APPS",
     "EXIT",
     # Learning actions
-    "TEACH_LAST",
-    "TEACH_CUSTOM",
-    "TEACH_SHORTCUT",
-    "FORGET_MAPPING",
-    "LIST_MAPPINGS",
+    "TEACH_LAST",           # Teach the last opened app
+    "TEACH_CUSTOM",         # Teach custom mapping: teach <shortcut> <app>
+    "TEACH_SHORTCUT",       # Teach shortcut for last app
+    "FORGET_MAPPING",       # Forget a learned mapping
+    "LIST_MAPPINGS",        # Show all learned mappings
     # Vision actions
-    "VISION_QUERY",
-    "SCREEN_INFO",
-    "FIND_VISUAL",
-    # Volume controls
-    "VOLUME_UP",
-    "VOLUME_DOWN",
-    "SET_VOLUME",
-    "VOLUME_MUTE",
+    "VISION_QUERY",         # Complex vision-based query
+    "SCREEN_INFO",          # "What do you see?"
+    "FIND_VISUAL",          # Find by visual description
     # Media controls
     "MEDIA_PLAY",
     "MEDIA_PAUSE",
-    "MEDIA_PLAY_PAUSE",
-    "MEDIA_STOP",
     "MEDIA_NEXT",
     "MEDIA_PREVIOUS",
-    "MEDIA_FAST_FORWARD",
-    "MEDIA_REWIND",
-    # Complex multi-step tasks (NEW)
-    "COMPLEX_TASK",
+    # Volume controls
+    "VOLUME_UP",
+    "VOLUME_DOWN",
 ]
 
 @dataclass
 class Command:
     action: Action
+    # For OPEN_APP / FIND_APP / FORGET_MAPPING
     query: Optional[str] = None
-    package: Optional[str] = None
+    package: Optional[str] = None  # when we already know the package
+    # For SCROLL
     direction: Optional[Literal["UP", "DOWN"]] = None
     amount: int = 1
+    # For TYPE_TEXT / TEACH_CUSTOM (text is the target app for teaching)
     text: Optional[str] = None
+    # For TAP
     x: Optional[int] = None
     y: Optional[int] = None
