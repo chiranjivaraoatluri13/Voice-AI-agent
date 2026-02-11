@@ -53,7 +53,16 @@ class IntentEngine:
         """Check if LLM is available"""
         try:
             models = ollama.list()
-            if not any(self.model in m['name'] for m in models.get('models', [])):
+            model_names = []
+            models_list = models.get('models', []) if isinstance(models, dict) else getattr(models, 'models', [])
+            for m in models_list:
+                if isinstance(m, dict):
+                    name = m.get('name', '') or m.get('model', '')
+                else:
+                    name = getattr(m, 'model', '') or getattr(m, 'name', '')
+                if name:
+                    model_names.append(name)
+            if not any(self.model in name for name in model_names):
                 print(f"⚠️ LLM model not found. Run: ollama pull {self.model}")
                 self.use_llm = False
         except Exception:

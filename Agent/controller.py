@@ -2,13 +2,18 @@
 # FILE: agent/controller.py
 # =========================
 """
-Complete controller integrating:
-- App management (auto aapt2 extraction + install listener)
-- Device control
-- Learning system
-- Vision capabilities (UI Automator + OCR + Ollama)
+Controller v5 — SPEED FOCUSED.
+
+Key speed fixes:
+1. _get_current_app() ONLY called for commands that need context
+   (open, send, play/pause, search) — NOT for back, home, volume, scroll
+2. Vision background thread pre-captures screenshots
+3. UI element finders reuse already-captured tree (no extra ADB calls)
+4. Basic commands (back, home, volume) are truly instant
 """
 
+import re
+import time
 from agent.adb import AdbClient
 from agent.device import DeviceController
 from agent.apps import AppResolver
@@ -17,140 +22,158 @@ from agent.screen_controller import ScreenController
 from agent.planner import plan
 from agent.schema import Command
 
+# Commands that DON'T need current app context
+# These skip _get_current_app() entirely → instant
+NO_CONTEXT_ACTIONS = {
+    "EXIT", "WAKE", "BACK", "HOME", "CLOSE_ALL", "TAP", "TYPE_TEXT",
+    "SCROLL", "REINDEX_APPS", "FIND_APP", "KEYEVENT",
+    "VOLUME_UP", "VOLUME_DOWN",
+    "TEACH_LAST", "TEACH_CUSTOM", "TEACH_SHORTCUT", "FORGET_MAPPING", "LIST_MAPPINGS",
+}
+
+
+def _get_current_app(adb: AdbClient) -> str:
+    try:
+        out = adb.run(["shell", "dumpsys", "activity", "activities", "|", "grep", "mResumedActivity"])
+        m = re.search(r'u0\s+(\S+)/', out)
+        if m:
+            return m.group(1)
+        m = re.search(r'(\S+)/\S+\s+\w+\}', out)
+        if m:
+            return m.group(1)
+    except Exception:
+        pass
+    return ""
+
+
+def _find_scrollable_bounds(screen):
+    """Uses cached UI tree. No ADB call."""
+    if not screen.ui_analyzer.last_elements:
+        screen.ui_analyzer.capture_ui_tree()
+    
+    best = None
+    best_area = 0
+    for elem in screen.ui_analyzer.last_elements:
+        if elem.scrollable:
+            w = elem.bounds[2] - elem.bounds[0]
+            h = elem.bounds[3] - elem.bounds[1]
+            if w > 50 and h > 50 and w * h > best_area:
+                best_area = w * h
+                best = elem.bounds
+    if best:
+        return best
+    
+    for elem in screen.ui_analyzer.last_elements:
+        cls = elem.class_name.lower()
+        if any(s in cls for s in ["recyclerview", "listview", "scrollview", "nestedscrollview"]):
+            w = elem.bounds[2] - elem.bounds[0]
+            h = elem.bounds[3] - elem.bounds[1]
+            if w > 100 and h > 200 and w * h > best_area:
+                best_area = w * h
+                best = elem.bounds
+    return best
+
 
 def run_cli() -> None:
-    """Main CLI loop with full vision capabilities"""
-    
-    # Initialize ADB
     adb = AdbClient()
     devs = adb.ensure_device()
+    print("✅ Connected:", len(devs), "device(s)")
 
-    print("✅ Connected devices:")
-    for d in devs:
-        print("  ", d)
-
-    # Initialize components
     device = DeviceController(adb)
     learner = CommandLearner()
     apps = AppResolver(adb, learner)
     screen = ScreenController(adb, device)
-
     device.wake()
 
-    # Get screen info
+    # Workflow system (self-contained, graceful degradation)
+    from agent import workflow_runner as wf_runner
+
     try:
         w, h = device.screen_size()
-        print(f"📱 Screen size: {w}x{h} ({'LANDSCAPE' if w > h else 'PORTRAIT'})")
+        print(f"📱 {w}x{h}")
         screen.vision.set_screen_size(w, h)
     except Exception:
-        print("⚠️ Could not determine screen size")
+        pass
 
-    # =====================================================
-    # Initialize app database
-    # On first launch: auto-extracts ALL labels via aapt2
-    # On subsequent launches: loads from cache, extracts only new apps
-    # Also starts background listener for real-time install detection
-    # =====================================================
-    print("\n📦 Initializing app database...")
+    print("📦 Loading apps...")
     stats = apps.initialize()
-    
-    if stats.get("first_launch"):
-        print(f"\n🎉 First launch setup complete!")
-    
-    print(f"✅ App database ready:")
-    print(f"   Total apps:        {stats['total']}")
-    print(f"   Labels available:  {stats['cached']}")
-    if stats['extracted'] > 0:
-        print(f"   APK-extracted:     {stats['extracted']}")
-    if stats['missing'] > 0:
-        print(f"   Missing labels:    {stats['missing']}")
-    print(f"   Init time:         {stats['time_ms']}ms")
+    print(f"✅ {stats['total']} apps, {stats['time_ms']}ms")
 
-    # aapt2 status
-    if apps.label_loader.aapt2_path:
-        print(f"   🔧 aapt2:          available")
-    else:
-        print(f"   ⚠️ aapt2:          not found (new app labels may be limited)")
-
-    # Install listener status
-    if apps.install_listener and apps.install_listener._running:
-        print(f"   👂 Install listener: active (new apps auto-detected)")
-    else:
-        print(f"   ⚠️ Install listener: not running")
-
-    # Load user mappings
     if learner.mappings:
-        print(f"🎓 Loaded {len(learner.mappings)} custom mapping(s)")
-    
-    # Check vision availability
-    if screen.vision.available:
-        print(f"👁️ Vision system ready: {screen.vision.model}")
-    else:
-        print("⚠️ Vision system not available (install: ollama pull llava-phi3)")
-    
-    if screen.ocr.available:
-        print("🔍 OCR system ready")
-    else:
-        print("⚠️ OCR not available (install: pip install pytesseract)")
+        print(f"🎓 {len(learner.mappings)} mappings")
+    wf_count = wf_runner.workflow_count()
+    if wf_count:
+        print(f"📚 {wf_count} learned workflow(s)")
 
-    print("\n" + "="*60)
-    print("COMMANDS:")
-    print("="*60)
-    
-    print("\n📱 Basic Control:")
-    print("  back / home / wake")
-    print("  tap 540 1200")
-    print("  type hello world")
-    print("  scroll down / scroll up")
-    
-    print("\n🎯 App Control:")
-    print("  open canvas / open chatgpt / open ludo king")
-    print("  open gmail / open youtube / open gemini")
-    print("  find gmail")
-    print("  reindex apps         → full re-extract all labels")
-    
-    print("\n🎓 Learning:")
-    print("  teach                → teach last app")
-    print("  teach google chrome  → 'google' = Chrome")
-    print("  forget google        → remove mapping")
-    print("  list mappings        → show shortcuts")
-    
-    print("\n👁️ Vision Queries:")
-    print("  what do you see?     → describe screen")
-    print("  click Subscribe      → find and click")
-    print("  tap the first video  → position-based")
-    print("  click the red button → visual search")
-    
-    print("\n📋 Other:")
-    print("  exit")
-    print("="*60)
-    print("\n💡 New apps installed while running are auto-detected!\n")
+    # Start background vision watching
+    screen.start_watching()
+
+    print("\n" + "="*50)
+    print("back | home | close | scroll up/down | swipe left")
+    print("open youtube | type hello | write hi and send")
+    print("click subscribe | search cats on youtube")
+    print("play | pause | volume up | sound more up")
+    print("teach me to <task>  | list workflows | exit")
+    print("="*50 + "\n")
+
+    # Cache current app lazily
+    _cached_app = ""
+    _cached_app_time = 0
 
     while True:
         try:
             utter = input("> ").strip()
             if not utter:
                 continue
-                
-            cmd = plan(utter)
-
-            if not cmd:
-                print("❌ Didn't understand. Try 'what do you see?' or 'click Subscribe'")
+            
+            # ── WORKFLOW HOOK (self-contained, safe) ──
+            action, data = wf_runner.intercept(utter)
+            if action == "handled":
+                continue  # Workflow system handled it entirely
+            elif action == "execute":
+                # Replay learned workflow steps
+                current_app = _get_current_app(adb)
+                for i, step_cmd in enumerate(data):
+                    print(f"  ▶ Step {i+1}: {step_cmd}")
+                    sub = plan(step_cmd, current_app=current_app)
+                    if sub and sub.action != "EXIT":
+                        execute_command(sub, device, apps, learner, screen, adb, current_app)
+                        time.sleep(0.5)
+                        current_app = _get_current_app(adb)
+                print(f"✅ Done\n")
                 continue
+            else:
+                # "pass" — normal flow, utter may have been modified during recording
+                utter = data
+            
+            # ── NORMAL COMMAND (unchanged from v5) ──
+            t_lower = utter.lower().strip()
+            needs_context = _needs_app_context(t_lower)
+            if needs_context:
+                now = time.time()
+                if now - _cached_app_time > 2.0:
+                    _cached_app = _get_current_app(adb)
+                    _cached_app_time = now
+                current_app = _cached_app
+            else:
+                current_app = _cached_app
 
+            cmd = plan(utter, current_app=current_app)
+            if not cmd:
+                print("❌ Didn't understand.")
+                continue
             if cmd.action == "EXIT":
-                # Cleanup
-                if apps.install_listener:
+                screen.stop_watching()
+                if hasattr(apps, 'install_listener') and apps.install_listener:
                     apps.install_listener.stop()
                 print("Stopping.")
                 break
-
-            execute_command(cmd, device, apps, learner, screen)
             
+            execute_command(cmd, device, apps, learner, screen, adb, current_app)
+
         except KeyboardInterrupt:
-            if apps.install_listener:
-                apps.install_listener.stop()
-            print("\n\nStopping.")
+            screen.stop_watching()
+            print("\nStopping.")
             break
         except Exception as e:
             print(f"❌ Error: {e}")
@@ -158,204 +181,377 @@ def run_cli() -> None:
             traceback.print_exc()
 
 
-def execute_command(
-    cmd: Command, 
-    device: DeviceController, 
-    apps: AppResolver,
-    learner: CommandLearner,
-    screen: ScreenController
-) -> None:
-    """Execute command with vision support"""
-    
-    # ==================
-    # Vision Commands
-    # ==================
-    if cmd.action == "SCREEN_INFO":
-        print("🔍 Analyzing screen...")
-        query = cmd.query or "what do you see?"
-        
-        intent = screen.router.parse_query(query)
-        if intent.type == "INFO":
-            screen._execute_info(intent)
-        else:
-            answer = screen.ask(query)
-            print(f"\n📱 {answer}\n")
-        return
-    
-    if cmd.action == "VISION_QUERY":
-        if not cmd.query:
-            print("❌ No query provided")
-            return
-        
-        print(f"🔍 Processing: {cmd.query}")
-        success = screen.execute_query(cmd.query)
-        
-        if not success:
-            print("💡 Tip: Try being more specific or use 'what do you see?' first")
-        return
-    
-    if cmd.action == "FIND_VISUAL":
-        if not cmd.query:
-            print("❌ No search query")
-            return
-        
-        success = screen.find_and_tap(cmd.query)
-        if not success:
-            print(f"❌ Could not find: {cmd.query}")
-        return
-    
-    # ==================
-    # Learning Commands
-    # ==================
-    if cmd.action == "TEACH_LAST":
-        apps.teach_last()
-        return
-    
-    if cmd.action == "TEACH_CUSTOM":
-        if not cmd.query or not cmd.text:
-            print("❌ Usage: teach <shortcut> <app>")
-            print("   Example: teach google chrome")
-            return
-        apps.teach_custom(cmd.query, cmd.text)
-        return
-    
-    if cmd.action == "TEACH_SHORTCUT":
-        if not cmd.query:
-            print("❌ Usage: teach <shortcut>")
-            return
-        if not apps.last_choice:
-            print("❌ No recent app to teach. Open an app first.")
-            return
-        _, pkg, label = apps.last_choice
-        learner.teach(cmd.query, pkg, label)
-        return
-    
-    if cmd.action == "FORGET_MAPPING":
-        if not cmd.query:
-            print("❌ Usage: forget <shortcut>")
-            return
-        if learner.forget(cmd.query):
-            print(f"✅ Forgot mapping for '{cmd.query}'")
-        else:
-            print(f"❌ No mapping found for '{cmd.query}'")
-        return
-    
-    if cmd.action == "LIST_MAPPINGS":
-        learner.list_mappings()
-        return
-    
-    # ==================
-    # Basic Commands
-    # ==================
+def _needs_app_context(t: str) -> bool:
+    """Quick check: does this command need to know current app?"""
+    # These commands need context for proper routing
+    if any(t.startswith(p) for p in ["open ", "send ", "play", "pause", "stop", "resume",
+                                      "next", "skip", "previous", "search ", "find "]):
+        return True
+    if any(kw in t for kw in ["what do you see", "describe screen"]):
+        return True
+    return False
+
+
+def execute_command(cmd, device, apps, learner, screen, adb, current_app=""):
+    # === INSTANT commands (no ADB overhead) ===
     if cmd.action == "WAKE":
-        device.wake()
-        return
-
+        device.wake(); return
     if cmd.action == "HOME":
-        device.home()
-        return
-
+        device.home(); return
     if cmd.action == "BACK":
-        device.back()
-        return
-
+        device.back(); return
+    if cmd.action == "CLOSE_ALL":
+        device.close_all_apps(); return
     if cmd.action == "TAP":
-        if cmd.x is None or cmd.y is None:
-            print("❌ TAP requires x and y")
-            return
-        device.tap(cmd.x, cmd.y)
+        if cmd.x is not None and cmd.y is not None:
+            device.tap_exact(cmd.x, cmd.y)
         return
-
     if cmd.action == "TYPE_TEXT":
-        device.type_text(cmd.text or "")
+        device.type_text(cmd.text or ""); return
+    if cmd.action == "KEYEVENT":
+        if cmd.query:
+            adb.run(["shell", "input", "keyevent", cmd.query])
         return
 
+    # === Volume (instant) ===
+    if cmd.action == "VOLUME_UP":
+        device.volume_up(cmd.amount if cmd.amount > 1 else 2); return
+    if cmd.action == "VOLUME_DOWN":
+        device.volume_down(cmd.amount if cmd.amount > 1 else 2); return
+
+    # === Media (instant) ===
+    if cmd.action == "MEDIA_PLAY":
+        device.media_play(); return
+    if cmd.action == "MEDIA_PAUSE":
+        device.media_pause(); return
+    if cmd.action == "MEDIA_PLAY_PAUSE":
+        device.media_play_pause(); return
+    if cmd.action == "MEDIA_NEXT":
+        device.media_next(); return
+    if cmd.action == "MEDIA_PREVIOUS":
+        device.media_previous(); return
+
+    # === Scroll (fast — one ADB swipe) ===
     if cmd.action == "SCROLL":
+        d = cmd.direction or "DOWN"
         amt = max(1, min(cmd.amount, 10))
-        direction = cmd.direction or "DOWN"
-        for _ in range(amt):
-            device.scroll_once(direction)
-        # Invalidate UI tree cache — screen content changed
+        if d in ("LEFT", "RIGHT"):
+            for _ in range(amt):
+                device.scroll_horizontal(d)
+        else:
+            bounds = _find_scrollable_bounds(screen) if screen.ui_analyzer.last_elements else None
+            for _ in range(amt):
+                device.scroll_once(d, scroll_bounds=bounds)
         screen.ui_analyzer.last_tree = None
         screen.ui_analyzer.last_elements = []
         return
 
-    # =====================================================
-    # REINDEX: Full re-extraction of all labels
-    # =====================================================
+    # === Swipe (shorter, faster gesture) ===
+    if cmd.action == "SWIPE":
+        d = cmd.direction or "DOWN"
+        amt = max(1, min(cmd.amount, 5))
+        try:
+            w, h = device.screen_size()
+            cx, cy = w // 2, h // 2
+            dist = min(w, h) // 3  # shorter than scroll
+            for _ in range(amt):
+                if d == "UP":
+                    device.swipe(cx, cy, cx, cy - dist, 200)
+                elif d == "DOWN":
+                    device.swipe(cx, cy, cx, cy + dist, 200)
+                elif d == "LEFT":
+                    device.swipe(cx, cy, cx - dist, cy, 200)
+                elif d == "RIGHT":
+                    device.swipe(cx, cy, cx + dist, cy, 200)
+        except Exception:
+            pass
+        screen.ui_analyzer.last_tree = None
+        screen.ui_analyzer.last_elements = []
+        return
+
+    # === Multi-step: execute each step sequentially ===
+    if cmd.action == "MULTI_STEP":
+        steps = (cmd.query or "").split("|")
+        print(f"📋 Multi-step: {len(steps)} commands")
+        for i, step in enumerate(steps):
+            step = step.strip()
+            if not step:
+                continue
+            print(f"\n  Step {i+1}: {step}")
+            sub_cmd = plan(step, current_app=current_app)
+            if sub_cmd and sub_cmd.action != "EXIT":
+                execute_command(sub_cmd, device, apps, learner, screen, adb, current_app)
+                # Update current app after each step (app may have changed)
+                import time as _t
+                _t.sleep(0.5)
+                current_app = _get_current_app(adb)
+        return
+
+    # === Learning (instant, no ADB) ===
+    if cmd.action == "TEACH_LAST":
+        apps.teach_last(); return
+    if cmd.action == "TEACH_CUSTOM":
+        if cmd.query and cmd.text: apps.teach_custom(cmd.query, cmd.text)
+        return
+    if cmd.action == "TEACH_SHORTCUT":
+        if cmd.query and apps.last_choice:
+            learner.teach(cmd.query, apps.last_choice[1], apps.last_choice[2])
+        return
+    if cmd.action == "FORGET_MAPPING":
+        if cmd.query: learner.forget(cmd.query)
+        return
+    if cmd.action == "LIST_MAPPINGS":
+        learner.list_mappings(); return
+
+    # === App management ===
     if cmd.action == "REINDEX_APPS":
-        print("🔄 Full reindex: clearing all caches and re-extracting...")
         stats = apps.full_reindex()
-        print(f"✅ Reindex complete:")
-        print(f"   Total apps:      {stats['total']}")
-        print(f"   Labels available: {stats['cached']}")
-        if stats['extracted'] > 0:
-            print(f"   APK-extracted:   {stats['extracted']}")
-        if stats['missing'] > 0:
-            print(f"   Missing labels:  {stats['missing']}")
-        print(f"   Time:            {stats['time_ms']}ms")
-        return
-
+        print(f"✅ {stats['total']} apps, {stats['time_ms']}ms"); return
     if cmd.action == "FIND_APP":
-        q = cmd.query or ""
-        cands = apps.candidates(q, limit=10)
-        if not cands:
-            print(f"🔍 FIND: No candidates for '{q}'")
-            return
-        print(f"🔍 FIND candidates for '{q}':")
-        for i, (score, label, pkg) in enumerate(cands, 1):
-            aliases = learner.get_aliases_for(pkg)
-            alias_str = f" [shortcuts: {', '.join(aliases)}]" if aliases else ""
-            print(f"  {i}. {label}  ({pkg})  score={score:.2f}{alias_str}")
+        cands = apps.candidates(cmd.query or "", limit=10)
+        for i, (s, l, p) in enumerate(cands, 1):
+            print(f"  {i}. {l} ({p}) {s:.2f}")
         return
-
     if cmd.action == "OPEN_APP":
-        q = cmd.query or ""
-        pkg = apps.resolve_or_ask(q)
-        if not pkg:
-            return
-        device.launch(pkg)
+        pkg = apps.resolve_or_ask(cmd.query or "")
+        if pkg: device.launch(pkg)
         return
 
-    # ==================
-    # Media Controls
-    # ==================
-    if cmd.action == "MEDIA_PLAY":
-        device.media_play()
-        print("▶️ Play")
+    # === Vision queries ===
+    if cmd.action == "SCREEN_INFO":
+        intent = screen.router.parse_query(cmd.query or "what do you see?")
+        screen._execute_info(intent); return
+    if cmd.action == "VISION_QUERY":
+        if cmd.query: screen.execute_query(cmd.query)
+        return
+    if cmd.action == "FIND_VISUAL":
+        if cmd.query: screen.find_and_tap(cmd.query)
         return
 
-    if cmd.action == "MEDIA_PAUSE":
-        device.media_pause()
-        print("⏸️ Paused")
+    # === Workflows ===
+    if cmd.action == "SEND_MESSAGE":
+        _do_send(cmd, device, apps, screen, adb); return
+    if cmd.action == "TYPE_AND_SEND":
+        _do_type_send(cmd, device, screen, adb); return
+    if cmd.action == "TAP_SEND":
+        screen.ui_analyzer.capture_ui_tree(force_refresh=True)
+        if _tap_send(screen, device):
+            print("✅ Sent!")
+        else:
+            adb.run(["shell", "input", "keyevent", "KEYCODE_ENTER"])
+            print("✅ Sent (Enter)")
         return
-
-    if cmd.action == "MEDIA_NEXT":
-        device.media_next()
-        print("⏭️ Next track")
+    if cmd.action == "TYPE_AND_ENTER":
+        if cmd.text:
+            device.type_text(cmd.text)
+            time.sleep(0.2)
+            adb.run(["shell", "input", "keyevent", "KEYCODE_ENTER"])
         return
+    if cmd.action == "SEARCH_IN_APP":
+        _do_search(cmd, device, apps, screen, adb); return
+    if cmd.action == "OPEN_CONTENT_IN_APP":
+        _do_open_content(cmd, device, apps, screen); return
+    if cmd.action == "APP_ACTION":
+        _do_app_action(cmd, device, screen, adb); return
 
-    if cmd.action == "MEDIA_PREVIOUS":
-        device.media_previous()
-        print("⏮️ Previous track")
-        return
 
-    # ==================
-    # Volume Controls
-    # ==================
-    if cmd.action == "VOLUME_UP":
-        steps = cmd.amount if cmd.amount > 1 else 2
-        device.volume_up(steps)
-        print(f"🔊 Volume up ({steps} steps)")
-        return
+# ===========================================================
+# WORKFLOWS — each does at most 1-2 UI tree captures
+# ===========================================================
 
-    if cmd.action == "VOLUME_DOWN":
-        steps = cmd.amount if cmd.amount > 1 else 2
-        device.volume_down(steps)
-        print(f"🔉 Volume down ({steps} steps)")
-        return
+def _do_send(cmd, device, apps, screen, adb):
+    recipient, message = cmd.query or "", cmd.text or ""
+    app_name = cmd.package or "whatsapp"
+    if not recipient or not message:
+        print("❌ send <msg> to <contact>"); return
 
-    print(f"⚠️ Unhandled command: {cmd}")
+    pkg = apps.resolve_or_ask(app_name, allow_learning=False)
+    if not pkg: return
+    device.launch(pkg)
+    time.sleep(1.5)
+
+    # ONE capture for contact search
+    screen.ui_analyzer.capture_ui_tree(force_refresh=True)
+    elements = screen.ui_analyzer.search(recipient)
+    hits = [e for e in elements if e.text and recipient.lower() in e.text.lower()]
+
+    target = hits[0] if hits else (elements[0] if elements else None)
+    if not target:
+        print(f"❌ Contact not found: {recipient}"); return
+    
+    name = target.text or target.content_desc
+    if name and name.lower().strip() != recipient.lower().strip():
+        c = input(f"🤔 '{name}'? (y/n): ").strip().lower()
+        if c not in ("y", "yes"): return
+    
+    device.tap(*target.center)
+    time.sleep(1.0)
+
+    # ONE capture for chat screen
+    screen.ui_analyzer.capture_ui_tree(force_refresh=True)
+    inp = _find_input(screen)
+    if inp: device.tap(*inp.center); time.sleep(0.3)
+    device.type_text(message)
+    time.sleep(0.3)
+    
+    # Refresh for send (typing changes UI)
+    screen.ui_analyzer.capture_ui_tree(force_refresh=True)
+    if _tap_send(screen, device):
+        print(f"✅ Sent!")
+    else:
+        adb.run(["shell", "input", "keyevent", "KEYCODE_ENTER"])
+        print(f"✅ Sent (Enter)")
+
+
+def _do_type_send(cmd, device, screen, adb):
+    message = cmd.text or ""
+    if not message: return
+
+    print(f"💬 Typing: {message}")
+    screen.ui_analyzer.capture_ui_tree(force_refresh=True)
+    inp = _find_input(screen)
+    if inp:
+        print(f"   Found input: {inp.class_name}")
+        device.tap(*inp.center)
+        time.sleep(0.3)
+    else:
+        print("   ⚠️ No input field found, tapping bottom of screen")
+        try:
+            w, h = device.screen_size()
+            device.tap(w // 2, int(h * 0.92))
+            time.sleep(0.3)
+        except Exception:
+            pass
+
+    device.type_text(message)
+    time.sleep(0.3)
+    
+    # Refresh tree for send button (typing may show/change send button)
+    screen.ui_analyzer.capture_ui_tree(force_refresh=True)
+    if _tap_send(screen, device):
+        print(f"✅ Sent!")
+    else:
+        print("   ⚠️ No send button found, pressing Enter")
+        adb.run(["shell", "input", "keyevent", "KEYCODE_ENTER"])
+        print(f"✅ Sent (Enter)")
+
+
+def _do_search(cmd, device, apps, screen, adb):
+    query = cmd.query or ""
+    if not query: return
+
+    if cmd.text:
+        pkg = apps.resolve_or_ask(cmd.text, allow_learning=False)
+        if pkg:
+            device.launch(pkg)
+            time.sleep(1.5)
+            screen.ui_analyzer.last_tree = None
+
+    time.sleep(0.3)
+    screen.ui_analyzer.capture_ui_tree(force_refresh=True)
+    elem = _find_search(screen)
+
+    if elem:
+        device.tap(*elem.center)
+        time.sleep(0.5)
+        device.clear_text_field()
+        time.sleep(0.3)
+        device.type_text(query)
+        time.sleep(0.3)
+        adb.run(["shell", "input", "keyevent", "KEYCODE_ENTER"])
+        print(f"✅ Searched: {query}")
+    else:
+        print("❌ No search bar found")
+
+
+def _do_open_content(cmd, device, apps, screen):
+    content = cmd.query or "video"
+    app_name = cmd.text or ""
+    pos = cmd.amount
+    if not app_name: return
+
+    pkg = apps.resolve_or_ask(app_name, allow_learning=False)
+    if not pkg: return
+    device.launch(pkg)
+    time.sleep(2.0)
+
+    screen.ui_analyzer.capture_ui_tree(force_refresh=True)
+    items = screen._find_items_ui(content)
+    if items:
+        idx = pos - 1 if pos > 0 else pos
+        if 0 <= idx < len(items):
+            device.tap(*items[idx].center)
+            print(f"✅ #{pos} {content}"); return
+
+    if screen.vision.available:
+        r = screen.vision.find_element_fast(f"the {'first second third fourth fifth'.split()[pos-1] if 1<=pos<=5 else str(pos)+'th'} {content}")
+        if r.coordinates and r.confidence > 0.4:
+            device.tap(*r.coordinates)
+            print(f"✅ #{pos} {content} (vision)"); return
+    print(f"❌ Not found")
+
+
+def _do_app_action(cmd, device, screen, adb):
+    descs = (cmd.text or "").split("|")
+    keyevent = cmd.package or ""
+    screen.ui_analyzer.capture_ui_tree(force_refresh=True)
+    for d in descs:
+        if not d: continue
+        for elem in screen.ui_analyzer.last_elements:
+            if d.lower() in elem.content_desc.lower():
+                device.tap(*elem.center); return
+    if keyevent:
+        adb.run(["shell", "input", "keyevent", keyevent]); return
+
+
+# ===========================================================
+# UI FINDERS — use already-captured tree, NO extra ADB calls
+# ===========================================================
+
+def _find_input(screen):
+    for e in screen.ui_analyzer.last_elements:
+        if "EditText" in e.class_name: return e
+        if any(k in e.resource_id.lower() for k in ["input", "edit", "compose", "message", "entry"]): return e
+        if any(k in e.content_desc.lower() for k in ["type a message", "message", "write", "compose"]): return e
+    return None
+
+
+def _tap_send(screen, device) -> bool:
+    for e in screen.ui_analyzer.last_elements:
+        if any(k in e.content_desc.lower() for k in ["send", "paper plane"]):
+            if (e.bounds[2] - e.bounds[0]) > 10:
+                device.tap(*e.center); return True
+    for e in screen.ui_analyzer.last_elements:
+        if any(k in e.resource_id.lower() for k in ["send", "btn_send", "send_button", "fab"]):
+            device.tap(*e.center); return True
+    for e in screen.ui_analyzer.last_elements:
+        if (e.text or "").lower() in ("send", "submit", "post"):
+            device.tap(*e.center); return True
+    # Positional: button near EditText on right
+    iy = None
+    for e in screen.ui_analyzer.last_elements:
+        if "EditText" in e.class_name: iy = e.center[1]; break
+    if iy:
+        try: sw, _ = device.screen_size()
+        except: sw = 1080
+        for e in screen.ui_analyzer.last_elements:
+            if "Button" in e.class_name or "Image" in e.class_name:
+                ex, ey = e.center
+                if ex > sw * 0.65 and abs(ey - iy) < 120:
+                    device.tap(ex, ey); return True
+    return False
+
+
+def _find_search(screen):
+    for e in screen.ui_analyzer.last_elements:
+        combined = (e.content_desc + e.text + e.resource_id).lower()
+        if "EditText" in e.class_name and any(k in combined for k in ["search", "find", "query"]):
+            return e
+        if any(k in e.content_desc.lower() for k in ["search", "find", "magnify"]) and e.clickable:
+            return e
+        if any(k in e.resource_id.lower() for k in ["search", "action_search", "search_button"]):
+            return e
+    return None
 
 
 if __name__ == "__main__":

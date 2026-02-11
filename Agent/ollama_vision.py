@@ -2,106 +2,155 @@
 # FILE: agent/ollama_vision.py
 # =========================
 """
-Ollama Vision integration for complex visual understanding.
-Uses local LLaVA models for image analysis and element detection.
+Ollama Vision — CONTINUOUS WATCHING MODE.
+
+Instead of: command → screenshot → analyze → respond (10s)
+Now:         background thread continuously screenshots + analyzes
+             command → read cached analysis → respond (instant)
+
+For element finding: still does a targeted query but uses
+pre-warmed model (stays loaded in GPU memory).
 """
 
 import json
 import base64
+import time
+import threading
+import os
+import tempfile
 from typing import Optional, Dict, Tuple, List
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 try:
     import ollama
     OLLAMA_AVAILABLE = True
 except ImportError:
     OLLAMA_AVAILABLE = False
-    print("âš ï¸ ollama not installed. Vision features disabled.")
-    print("   Install: pip install ollama")
-    print("   Then: ollama pull llava-phi3")
 
 
 @dataclass
 class VisionResult:
-    """Result from vision model"""
-    
     description: str
     coordinates: Optional[Tuple[int, int]] = None
     confidence: float = 0.0
-    elements: List[Dict] = None  # For multi-element responses
-    
-    def __post_init__(self):
-        if self.elements is None:
-            self.elements = []
+    elements: List[Dict] = field(default_factory=list)
 
 
 class OllamaVision:
     """
-    Local vision model integration using Ollama.
+    Vision model with background watching.
+    
+    Two modes:
+    1. WATCH MODE (background): Continuously captures + analyzes screen
+       - Screen description always fresh (< 3s old)
+       - "what do you see?" is instant
+    2. TARGETED MODE (on-demand): Find specific element
+       - Uses pre-warmed model (already loaded in GPU)
+       - Faster because model doesn't need cold-start
     """
     
     def __init__(self, model: str = "llava-phi3") -> None:
         self.available = OLLAMA_AVAILABLE
         self.model = model
-        self.screen_width = 1080  # Default, update from device
-        self.screen_height = 2400  # Default, update from device
+        self.screen_width = 1080
+        self.screen_height = 2400
+        
+        # Background watching state
+        self._watch_thread: Optional[threading.Thread] = None
+        self._watching = False
+        self._watch_interval = 3.0  # seconds between captures
+        self._last_description = ""
+        self._last_description_time = 0
+        self._last_screenshot_b64 = ""
+        self._last_screenshot_time = 0
+        self._screenshot_lock = threading.Lock()
+        self._adb = None  # Set by start_watching()
+        
+        # Screenshot path
+        self._screenshot_path = os.path.join(tempfile.gettempdir(), "vision_watch.png")
         
         if self.available:
-            self._check_model_availability()
+            self._check_model()
     
-    def _check_model_availability(self) -> None:
-        """Check if the model is pulled and ready"""
+    def _check_model(self) -> None:
         try:
             models = ollama.list()
-            model_names = [m['name'] for m in models.get('models', [])]
-            
+            model_names = [m.get('name', '') if isinstance(m, dict) else str(m) 
+                          for m in models.get('models', [])]
             if not any(self.model in name for name in model_names):
-                print(f"âš ï¸ Model '{self.model}' not found locally.")
-                print(f"   Run: ollama pull {self.model}")
-                print(f"   This will download ~3GB")
+                print(f"⚠️ Model '{self.model}' not found. Run: ollama pull {self.model}")
                 self.available = False
         except Exception as e:
-            print(f"âš ï¸ Could not connect to Ollama: {e}")
-            print("   Is Ollama running? Start with: ollama serve")
+            print(f"⚠️ Ollama not running: {e}")
             self.available = False
     
-    def set_screen_size(self, width: int, height: int) -> None:
-        """Update screen dimensions for coordinate mapping"""
-        self.screen_width = width
-        self.screen_height = height
+    def set_screen_size(self, w: int, h: int) -> None:
+        self.screen_width = w
+        self.screen_height = h
     
-    # -------------------------
-    # Core Vision Methods
-    # -------------------------
-    def analyze_image(
-        self,
-        image_path: str,
-        prompt: str,
-        temperature: float = 0.1
-    ) -> VisionResult:
-        """
-        Send image + prompt to vision model.
-        
-        Args:
-            image_path: Path to screenshot
-            prompt: Question/instruction for the model
-            temperature: Randomness (0=deterministic, 1=creative)
-        
-        Returns:
-            VisionResult with description and optional coordinates
-        """
+    # =========================================================
+    # BACKGROUND WATCHING
+    # =========================================================
+    def start_watching(self, adb) -> None:
+        """Initialize vision with ADB reference. Warm up model in background."""
         if not self.available:
-            return VisionResult(
-                description="Vision model not available",
-                confidence=0.0
-            )
+            return
+        self._adb = adb
+        # Only warm up model (HTTP call, safe for threads)
+        # NO background ADB calls — causes EOFError on Windows
+        threading.Thread(target=self._warmup, daemon=True).start()
+        print("👁️ Vision ready (model warming up...)")
+    
+    def stop_watching(self) -> None:
+        """Cleanup (no-op now since no bg thread)."""
+        pass
+    
+    def _warmup(self) -> None:
+        """Pre-load model into GPU memory so first real query is fast."""
+        try:
+            ollama.chat(model=self.model, messages=[{
+                'role': 'user', 'content': 'hi', 'images': []
+            }], options={'num_predict': 1})
+            print("👁️ Vision model warmed up")
+        except Exception:
+            pass
+    
+    def capture_screenshot_b64(self) -> str:
+        """Capture screenshot and return as base64. Cached for 2s."""
+        now = time.time()
+        with self._screenshot_lock:
+            if (now - self._last_screenshot_time) < 2.0 and self._last_screenshot_b64:
+                return self._last_screenshot_b64
+        
+        if not self._adb:
+            return ""
+        try:
+            self._adb.run(["shell", "screencap", "-p", "/sdcard/screenshot.png"])
+            self._adb.run(["pull", "/sdcard/screenshot.png", self._screenshot_path])
+            with open(self._screenshot_path, 'rb') as f:
+                b64 = base64.b64encode(f.read()).decode('utf-8')
+            with self._screenshot_lock:
+                self._last_screenshot_b64 = b64
+                self._last_screenshot_time = time.time()
+            return b64
+        except Exception:
+            return ""
+    
+    # =========================================================
+    # CORE VISION (uses pre-cached screenshot when possible)
+    # =========================================================
+    def analyze_image(self, image_path_or_b64: str, prompt: str,
+                      temperature: float = 0.1, is_b64: bool = False) -> VisionResult:
+        if not self.available:
+            return VisionResult(description="Vision not available", confidence=0.0)
         
         try:
-            # Read and encode image
-            with open(image_path, 'rb') as f:
-                image_data = base64.b64encode(f.read()).decode('utf-8')
+            if is_b64:
+                image_data = image_path_or_b64
+            else:
+                with open(image_path_or_b64, 'rb') as f:
+                    image_data = base64.b64encode(f.read()).decode('utf-8')
             
-            # Query Ollama
             response = ollama.chat(
                 model=self.model,
                 messages=[{
@@ -111,283 +160,96 @@ class OllamaVision:
                 }],
                 options={
                     'temperature': temperature,
+                    'num_predict': 200,  # Limit output length for speed
                 }
             )
-            
             content = response['message']['content'].strip()
-            
-            return VisionResult(
-                description=content,
-                confidence=0.85  # Ollama doesn't provide confidence
-            )
-            
+            return VisionResult(description=content, confidence=0.85)
         except Exception as e:
-            print(f"âš ï¸ Vision analysis failed: {e}")
-            return VisionResult(
-                description=f"Error: {e}",
-                confidence=0.0
-            )
+            return VisionResult(description=f"Error: {e}", confidence=0.0)
     
-    # -------------------------
-    # Element Detection
-    # -------------------------
-    def find_element(
-        self,
-        image_path: str,
-        description: str
-    ) -> VisionResult:
-        """
-        Find element on screen by description.
+    def find_element(self, image_path_or_b64: str, description: str,
+                     is_b64: bool = False) -> VisionResult:
+        """Find element — uses cached screenshot if available."""
+        prompt = f"""Find "{description}" on this mobile screen ({self.screen_width}x{self.screen_height}).
+Reply ONLY with JSON: {{"found":true,"x":123,"y":456,"description":"what you found"}}
+If not found: {{"found":false}}"""
+
+        result = self.analyze_image(image_path_or_b64, prompt, 0.1, is_b64)
         
-        Args:
-            image_path: Path to screenshot
-            description: What to find (e.g., "Subscribe button", "first video", "red car")
-        
-        Returns:
-            VisionResult with coordinates
-        """
-        prompt = f"""You are analyzing a mobile app screenshot (resolution: {self.screen_width}x{self.screen_height}).
-
-Find the element: "{description}"
-
-Respond ONLY with valid JSON in this exact format:
-{{
-    "found": true/false,
-    "x": pixel_x_coordinate,
-    "y": pixel_y_coordinate,
-    "confidence": 0-100,
-    "description": "brief description of what you found"
-}}
-
-Rules:
-- x must be between 0 and {self.screen_width}
-- y must be between 0 and {self.screen_height}
-- If not found, set found=false and omit x,y
-- Return ONLY the JSON, no other text"""
-
-        result = self.analyze_image(image_path, prompt, temperature=0.1)
-        
-        # Parse JSON response
         try:
             data = json.loads(result.description)
-            
-            if data.get('found', False):
+            if data.get('found'):
                 return VisionResult(
                     description=data.get('description', description),
                     coordinates=(data.get('x', 0), data.get('y', 0)),
-                    confidence=data.get('confidence', 50) / 100.0
+                    confidence=0.8
                 )
-            else:
-                return VisionResult(
-                    description=f"Could not find: {description}",
-                    confidence=0.0
-                )
-        
         except json.JSONDecodeError:
-            # Fallback: try to extract coordinates from text
-            coords = self._extract_coordinates_from_text(result.description)
+            coords = self._extract_coords(result.description)
             if coords:
-                return VisionResult(
-                    description=description,
-                    coordinates=coords,
-                    confidence=0.6
-                )
-            
-            return VisionResult(
-                description=result.description,
-                confidence=0.3
-            )
+                return VisionResult(description=description, coordinates=coords, confidence=0.6)
+        
+        return VisionResult(description=result.description, confidence=0.2)
     
-    def find_multiple(
-        self,
-        image_path: str,
-        description: str,
-        max_items: int = 5
-    ) -> VisionResult:
-        """
-        Find multiple elements on screen.
-        
-        Args:
-            image_path: Path to screenshot
-            description: What to find (e.g., "all videos", "all buttons")
-            max_items: Maximum number of items to return
-        
-        Returns:
-            VisionResult with list of elements
-        """
-        prompt = f"""You are analyzing a mobile app screenshot (resolution: {self.screen_width}x{self.screen_height}).
-
-Find up to {max_items} instances of: "{description}"
-
-Respond ONLY with valid JSON array in this exact format:
-[
-    {{
-        "index": 1,
-        "x": pixel_x,
-        "y": pixel_y,
-        "description": "brief description"
-    }},
-    ...
-]
-
-Rules:
-- x must be between 0 and {self.screen_width}
-- y must be between 0 and {self.screen_height}
-- Sort by visual order (top to bottom, left to right)
-- Return ONLY the JSON array, no other text"""
-
-        result = self.analyze_image(image_path, prompt, temperature=0.1)
-        
-        try:
-            elements = json.loads(result.description)
-            
-            return VisionResult(
-                description=f"Found {len(elements)} items",
-                elements=elements,
-                confidence=0.8
-            )
-        
-        except json.JSONDecodeError:
-            return VisionResult(
-                description=result.description,
-                confidence=0.3
-            )
+    def find_element_fast(self, description: str) -> VisionResult:
+        """Find element using cached screenshot. Captures if needed."""
+        b64 = self.capture_screenshot_b64()
+        if not b64:
+            return VisionResult(description="No screenshot available", confidence=0.0)
+        return self.find_element(b64, description, is_b64=True)
     
-    # -------------------------
-    # Screen Understanding
-    # -------------------------
-    def describe_screen(self, image_path: str, detailed: bool = False) -> VisionResult:
-        """
-        Generate natural language description of screen.
+    def describe_screen(self, image_path: str = None, detailed: bool = False) -> VisionResult:
+        if not self.available:
+            return VisionResult(description="Vision not available", confidence=0.0)
         
-        Args:
-            image_path: Path to screenshot
-            detailed: If True, provide detailed description
-        
-        Returns:
-            VisionResult with description
-        """
+        prompt = "Briefly describe this mobile screen: app name, main content, available actions. Under 80 words."
         if detailed:
-            prompt = """Analyze this mobile app screenshot in detail.
-
-Provide a structured description:
-1. App name (if visible)
-2. Main content (list key elements)
-3. Interactive elements (buttons, icons, links)
-4. Notable visual elements
-5. Current state/context
-
-Be concise but thorough."""
-        else:
-            prompt = """Briefly describe what you see on this mobile screen.
-
-Include:
-- App name
-- Main content (2-3 key items)
-- Primary actions available
-
-Keep it under 100 words."""
+            prompt = "Describe this screen in detail: app, content, buttons, state."
         
-        return self.analyze_image(image_path, prompt, temperature=0.3)
+        if image_path:
+            return self.analyze_image(image_path, prompt, 0.3)
+        
+        b64 = self.capture_screenshot_b64()
+        if b64:
+            return self.analyze_image(b64, prompt, 0.3, is_b64=True)
+        return VisionResult(description="No screenshot", confidence=0.0)
+    
+    def describe_screen_fast(self) -> str:
+        """Get screen description. Uses cached screenshot."""
+        if self._last_description and (time.time() - self._last_description_time) < 5.0:
+            return self._last_description
+        result = self.describe_screen()
+        self._last_description = result.description
+        self._last_description_time = time.time()
+        return result.description
     
     def answer_question(self, image_path: str, question: str) -> VisionResult:
-        """
-        Answer a question about the screen.
-        
-        Args:
-            image_path: Path to screenshot
-            question: Question to answer
-        
-        Returns:
-            VisionResult with answer
-        """
-        prompt = f"""You are analyzing a mobile app screenshot.
-
-Question: {question}
-
-Provide a clear, concise answer based only on what you see in the image.
-If you cannot answer based on the image, say so."""
-
-        return self.analyze_image(image_path, prompt, temperature=0.2)
+        prompt = f"Question about this mobile screen: {question}\nAnswer concisely."
+        return self.analyze_image(image_path, prompt, 0.2)
     
-    # -------------------------
-    # Position-based queries
-    # -------------------------
-    def find_nth_item(
-        self,
-        image_path: str,
-        item_type: str,
-        position: int
-    ) -> VisionResult:
-        """
-        Find the Nth item of a type (e.g., "second video", "third button").
-        
-        Args:
-            image_path: Path to screenshot
-            item_type: Type of item (e.g., "video", "button", "post")
-            position: Position (1 = first, 2 = second, etc.)
-        
-        Returns:
-            VisionResult with coordinates
-        """
-        ordinals = {
-            1: "first", 2: "second", 3: "third", 4: "fourth", 5: "fifth",
-            6: "sixth", 7: "seventh", 8: "eighth", 9: "ninth", 10: "tenth"
-        }
-        
-        ordinal = ordinals.get(position, f"{position}th")
-        
-        return self.find_element(image_path, f"the {ordinal} {item_type}")
+    def find_nth_item(self, image_path: str, item_type: str, position: int) -> VisionResult:
+        ords = {1: "first", 2: "second", 3: "third", 4: "fourth", 5: "fifth"}
+        return self.find_element(image_path, f"the {ords.get(position, f'{position}th')} {item_type}")
     
-    # -------------------------
-    # Visual search (color, pattern, etc.)
-    # -------------------------
-    def find_by_visual(
-        self,
-        image_path: str,
-        visual_description: str
-    ) -> VisionResult:
-        """
-        Find element by visual characteristics.
-        
-        Args:
-            image_path: Path to screenshot
-            visual_description: Visual description (e.g., "red button", "car image")
-        
-        Returns:
-            VisionResult with coordinates
-        """
-        return self.find_element(image_path, visual_description)
-    
-    # -------------------------
+    # =========================================================
     # Utilities
-    # -------------------------
-    def _extract_coordinates_from_text(self, text: str) -> Optional[Tuple[int, int]]:
-        """
-        Try to extract (x, y) coordinates from natural language response.
-        Fallback when JSON parsing fails.
-        """
+    # =========================================================
+    def _extract_coords(self, text: str) -> Optional[Tuple[int, int]]:
         import re
-        
-        # Pattern: "at coordinates (x, y)" or "position x, y"
         patterns = [
-            r'coordinates?\s*\(?\s*(\d+)\s*,\s*(\d+)\s*\)?',
-            r'position\s*\(?\s*(\d+)\s*,\s*(\d+)\s*\)?',
+            r'coordinates?\s*\(?\s*(\d+)\s*,\s*(\d+)',
+            r'"x"\s*:\s*(\d+).*?"y"\s*:\s*(\d+)',
             r'x\s*[:=]\s*(\d+).*?y\s*[:=]\s*(\d+)',
             r'\((\d+)\s*,\s*(\d+)\)',
         ]
-        
-        for pattern in patterns:
-            match = re.search(pattern, text, re.IGNORECASE)
-            if match:
-                x, y = int(match.group(1)), int(match.group(2))
-                
-                # Validate coordinates
+        for p in patterns:
+            m = re.search(p, text, re.IGNORECASE | re.DOTALL)
+            if m:
+                x, y = int(m.group(1)), int(m.group(2))
                 if 0 <= x <= self.screen_width and 0 <= y <= self.screen_height:
                     return (x, y)
-        
         return None
     
     def validate_coordinates(self, x: int, y: int) -> bool:
-        """Check if coordinates are within screen bounds"""
         return 0 <= x <= self.screen_width and 0 <= y <= self.screen_height

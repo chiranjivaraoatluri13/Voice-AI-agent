@@ -55,6 +55,8 @@ class UIAnalyzer:
         self.adb = adb
         self.last_tree: Optional[ET.Element] = None
         self.last_elements: List[UIElement] = []
+        self._last_capture_time: float = 0
+        self._cache_ttl: float = 3.0  # seconds before auto-refresh
     
     # -------------------------
     # UI Hierarchy Capture
@@ -62,9 +64,13 @@ class UIAnalyzer:
     def capture_ui_tree(self, force_refresh: bool = False) -> None:
         """
         Capture current UI hierarchy from device.
-        Cached by default unless force_refresh=True.
+        Auto-refreshes if cache is older than 3 seconds.
         """
-        if not force_refresh and self.last_tree is not None:
+        import time
+        now = time.time()
+        is_stale = (now - self._last_capture_time) > self._cache_ttl
+        
+        if not force_refresh and not is_stale and self.last_tree is not None:
             return
         
         try:
@@ -79,6 +85,7 @@ class UIAnalyzer:
             
             # Parse all elements
             self.last_elements = self._parse_tree(self.last_tree)
+            self._last_capture_time = now
             
         except Exception as e:
             print(f"âš ï¸ UI tree capture failed: {e}")
@@ -196,10 +203,10 @@ class UIAnalyzer:
     def search(self, query: str) -> List[UIElement]:
         """
         Smart search across text, ID, and description.
-        ALWAYS refreshes UI tree (screen may have changed after scroll).
+        Auto-refreshes UI tree if stale (>3 sec old).
         Returns ranked results, preferring elements with actual text.
         """
-        self.capture_ui_tree(force_refresh=True)
+        self.capture_ui_tree()  # TTL-based auto-refresh
         
         query_lower = query.lower()
         scored_results = []
@@ -344,39 +351,187 @@ class UIAnalyzer:
     # -------------------------
     def detect_list_items(self, min_items: int = 2) -> List[UIElement]:
         """
-        Detect repeating list items (videos, posts, products, etc.).
-        Returns items sorted top-to-bottom.
+        Detect feed/list items (videos, posts, pins, etc.).
+        
+        Strategy order:
+        1. Find RecyclerView children (most reliable)
+        2. Find clickable elements with content (text/desc) in scroll area
+        3. Size-grouping fallback
         """
         self.capture_ui_tree()
+        if not self.last_elements:
+            return []
         
-        # Group elements by similar heights and widths
+        # Get screen bounds
+        max_w = max((e.bounds[2] for e in self.last_elements), default=1080)
+        max_h = max((e.bounds[3] for e in self.last_elements), default=2400)
+        
+        # Strategy 1: Find items inside RecyclerView/ListView
+        items = self._find_recycler_children(max_w, max_h)
+        if len(items) >= min_items:
+            return items
+        
+        # Strategy 2: Clickable content elements in the main scroll area
+        items = self._find_clickable_content(max_w, max_h)
+        if len(items) >= min_items:
+            return items
+        
+        # Strategy 3: Size-grouping fallback
+        items = self._find_by_size_grouping(max_w, max_h, min_items)
+        return items
+    
+    def _find_recycler_children(self, max_w: int, max_h: int) -> List[UIElement]:
+        """Find children of RecyclerView/ListView — these ARE the list items."""
+        # First find the scrollable/recycler container
+        recycler = None
+        recycler_area = 0
+        
+        for elem in self.last_elements:
+            cls = elem.class_name.lower()
+            if any(rv in cls for rv in ["recyclerview", "listview", "gridview"]):
+                area = elem.width * elem.height
+                if area > recycler_area:
+                    recycler = elem
+                    recycler_area = area
+        
+        if not recycler:
+            # Also try scrollable elements
+            for elem in self.last_elements:
+                if elem.scrollable and elem.width > max_w * 0.5 and elem.height > max_h * 0.3:
+                    area = elem.width * elem.height
+                    if area > recycler_area:
+                        recycler = elem
+                        recycler_area = area
+        
+        if not recycler:
+            return []
+        
+        # Find elements that are direct content inside this recycler
+        # They should: be inside recycler bounds, be substantial size, be at the top level
+        rl, rt, rr, rb = recycler.bounds
+        items = []
+        
+        for elem in self.last_elements:
+            if elem is recycler:
+                continue
+            el, et, er, eb = elem.bounds
+            
+            # Must be inside recycler
+            if el < rl or et < rt or er > rr + 5 or eb > rb + 5:
+                continue
+            
+            w, h = elem.width, elem.height
+            
+            # Must be substantial (not tiny icons or text fragments)
+            if w < max_w * 0.3 or h < 80:
+                continue
+            
+            # Skip if it's basically the full recycler (it IS the recycler)
+            if w >= (rr - rl) * 0.95 and h >= (rb - rt) * 0.8:
+                continue
+            
+            # Must be clickable OR have content
+            if elem.clickable or elem.text or elem.content_desc:
+                items.append(elem)
+        
+        if not items:
+            return []
+        
+        # Deduplicate: if elements overlap vertically, keep the larger one
+        items.sort(key=lambda e: e.bounds[1])
+        deduped = []
+        for item in items:
+            if deduped:
+                last = deduped[-1]
+                # Check vertical overlap
+                overlap = min(last.bounds[3], item.bounds[3]) - max(last.bounds[1], item.bounds[1])
+                if overlap > min(last.height, item.height) * 0.5:
+                    # Keep the larger/more clickable one
+                    if item.height > last.height or (item.clickable and not last.clickable):
+                        deduped[-1] = item
+                    continue
+            deduped.append(item)
+        
+        return deduped
+    
+    def _find_clickable_content(self, max_w: int, max_h: int) -> List[UIElement]:
+        """
+        Find clickable elements with content in the main content area.
+        Filters out toolbar, nav bar, and tiny elements.
+        """
+        # Content area: skip top 10% (toolbar) and bottom 10% (nav)
+        content_top = max_h * 0.10
+        content_bottom = max_h * 0.90
+        
+        items = []
+        for elem in self.last_elements:
+            # Must be clickable
+            if not elem.clickable:
+                continue
+            
+            # Must be in content area
+            if elem.bounds[1] < content_top or elem.bounds[3] > content_bottom:
+                continue
+            
+            # Must have real size (not tiny icons)
+            if elem.width < max_w * 0.25 or elem.height < 80:
+                continue
+            
+            # Must have content OR be a substantial container
+            has_content = bool(elem.text or elem.content_desc)
+            is_substantial = elem.height > 150 and elem.width > max_w * 0.4
+            
+            if has_content or is_substantial:
+                items.append(elem)
+        
+        if not items:
+            return []
+        
+        # Sort top to bottom
+        items.sort(key=lambda e: e.bounds[1])
+        
+        # Deduplicate overlapping items (keep the best one)
+        deduped = []
+        for item in items:
+            if deduped:
+                last = deduped[-1]
+                overlap = min(last.bounds[3], item.bounds[3]) - max(last.bounds[1], item.bounds[1])
+                if overlap > min(last.height, item.height) * 0.3:
+                    # Keep the one with more content or larger area
+                    last_score = (1 if last.text else 0) + (1 if last.content_desc else 0) + last.height
+                    item_score = (1 if item.text else 0) + (1 if item.content_desc else 0) + item.height
+                    if item_score > last_score:
+                        deduped[-1] = item
+                    continue
+            deduped.append(item)
+        
+        return deduped
+    
+    def _find_by_size_grouping(self, max_w: int, max_h: int, min_items: int) -> List[UIElement]:
+        """Original size-grouping approach as final fallback."""
         from collections import defaultdict
         size_groups = defaultdict(list)
         
         for elem in self.last_elements:
-            # Skip tiny or full-screen elements
-            if elem.width < 100 or elem.height < 100:
+            w, h = elem.width, elem.height
+            if w < 80 or h < 80:
                 continue
-            if elem.width > 900 or elem.height > 1500:
+            if w >= max_w * 0.98 and h >= max_h * 0.8:
                 continue
-            
-            # Group by approximate size (rounded to nearest 50px)
-            size_key = (
-                round(elem.width / 50) * 50,
-                round(elem.height / 50) * 50
-            )
+            if h > max_h * 0.6:
+                continue
+            if not (elem.clickable or elem.text or elem.content_desc):
+                continue
+            size_key = (round(w / 50) * 50, round(h / 50) * 50)
             size_groups[size_key].append(elem)
         
-        # Find largest group (likely the repeating items)
         if not size_groups:
             return []
         
-        largest_group = max(size_groups.values(), key=len)
-        
-        if len(largest_group) < min_items:
+        candidates = [g for g in size_groups.values() if len(g) >= min_items]
+        if not candidates:
             return []
         
-        # Sort by position (top to bottom, left to right)
-        largest_group.sort(key=lambda e: (e.bounds[1], e.bounds[0]))
-        
-        return largest_group
+        largest = max(candidates, key=len)
+        largest.sort(key=lambda e: (e.bounds[1], e.bounds[0]))
+        return largest

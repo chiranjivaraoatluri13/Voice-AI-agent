@@ -1,6 +1,19 @@
 {
-  "mappings": {},
-  "aliases": {},
-  "history": [],
-  "last_updated": null
+  "mappings": {
+    "whatsapp": "com.whatsapp.w4b"
+  },
+  "aliases": {
+    "com.whatsapp.w4b": [
+      "whatsapp"
+    ]
+  },
+  "history": [
+    {
+      "timestamp": "2026-02-10T20:01:59.297115",
+      "query": "whatsapp",
+      "package": "com.whatsapp.w4b",
+      "label": "WhatsApp Business"
+    }
+  ],
+  "last_updated": "2026-02-10T20:01:59.297144"
 }
