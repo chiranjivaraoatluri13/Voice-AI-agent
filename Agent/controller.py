@@ -12,6 +12,7 @@ Changes from v5:
 """
 
 import re
+import sys
 import time
 from agent.adb import AdbClient
 from agent.device import DeviceController
@@ -29,6 +30,19 @@ NO_CONTEXT_ACTIONS = {
     "VOLUME_UP", "VOLUME_DOWN", "VOLUME_MUTE", "VOLUME_UNMUTE", "VOLUME_MAX",
     "TEACH_LAST", "TEACH_CUSTOM", "TEACH_SHORTCUT", "FORGET_MAPPING", "LIST_MAPPINGS",
 }
+
+
+def _safe_input(prompt: str) -> str:
+    """Safe input handler for Windows PowerShell compatibility."""
+    try:
+        # Use regular input() - most compatible with PowerShell
+        return input(prompt).strip()
+    except EOFError:
+        # Readline hit EOF - return empty string to trigger retry
+        return ""
+    except KeyboardInterrupt:
+        # User pressed Ctrl+C - propagate to exit
+        raise
 
 
 def _get_current_app(adb: AdbClient) -> str:
@@ -122,7 +136,8 @@ def run_cli() -> None:
 
     while True:
         try:
-            utter = input("> ").strip()
+            utter = _safe_input("> ")
+            
             if not utter:
                 continue
             

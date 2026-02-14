@@ -238,38 +238,56 @@ class ScreenController:
         return False
 
     # =========================================================
-    # Strategy 1: Content-desc knowledge
+    # Strategy 1: Content-desc knowledge (fast path)
     # =========================================================
     def _try_content_desc(self, target_lower: str) -> bool:
+        """Check if target is in knowledge base and find it on screen."""
         known = UI_ELEMENT_KNOWLEDGE.get(target_lower)
         if not known:
             for key, descs in UI_ELEMENT_KNOWLEDGE.items():
                 if key in target_lower or target_lower in key:
                     known = descs
                     break
+        
         if not known:
             return False
         
+        # Capture UI once
         self.ui_analyzer.capture_ui_tree(force_refresh=True)
+        
+        if not self.ui_analyzer.last_elements:
+            return False
+        
+        # Search for matches in both content_desc AND text
         for elem in self.ui_analyzer.last_elements:
+            if not elem.clickable and "Button" not in elem.class_name:
+                continue
+            
             desc = elem.content_desc.lower()
-            for k in known:
-                if k.lower() in desc or desc in k.lower():
-                    if not elem.clickable and "Button" not in elem.class_name:
-                        continue
+            text = (elem.text or "").lower()
+            combined = f"{text} {desc}"
+            
+            # Check if any known variant matches
+            for variant in known:
+                variant_lower = variant.lower()
+                if (variant_lower in desc or desc in variant_lower or
+                    variant_lower in text or text in variant_lower or
+                    variant_lower in combined):
+                    print(f"   ✅ Found in knowledge base: {elem.text or elem.content_desc}")
                     self.device.tap(*elem.center)
                     time.sleep(0.3)
-                    print(f"✅ {elem.content_desc}")
+                    print(f"✅ {elem.text or elem.content_desc}")
                     return True
+        
         return False
 
     def _brute_force_text_search(self, target: str) -> bool:
         """
         Last-resort search: look for ANY clickable element containing target text.
-        Useful when app uses custom element names not in our knowledge base.
-        Tries partial matching, case-insensitive, fuzzy matching.
         """
+        # Single capture (no cache logic)
         self.ui_analyzer.capture_ui_tree(force_refresh=True)
+        
         if not self.ui_analyzer.last_elements:
             print(f"   ⚠️ UI tree is empty!")
             return False
@@ -335,11 +353,22 @@ class ScreenController:
                 priority += 15
                 match_reason.append("substring")
             
-            # Word overlap (e.g., "subscribe button" matches "subscribe")
+            # Word overlap with partial matching (handles plurals, compounds)
             text_words = set(text.split())
             desc_words = set(desc.split())
             combined_words = text_words | desc_words
-            word_overlap = len(target_words & combined_words)
+            
+            # Count words that have substring overlap (e.g., "picture" matches "pictures")
+            word_overlap = 0
+            for target_word in target_words:
+                if target_word in ("a", "the", "an", "to"):  # Skip articles/prepositions
+                    continue
+                # Check if any element word contains this target word
+                for elem_word in combined_words:
+                    if target_word in elem_word or elem_word in target_word:
+                        word_overlap += 1
+                        break
+            
             if word_overlap > 0:
                 priority += word_overlap * 5
                 match_reason.append(f"words:{word_overlap}")
@@ -395,9 +424,11 @@ class ScreenController:
         1. Exact substring match (highest confidence)
         2. Word-overlap match (handles partial queries)
         """
+        # Single capture (no redundant calls)
         self.ui_analyzer.capture_ui_tree(force_refresh=True)
+        
         if not self.ui_analyzer.last_elements:
-            print(f"   ⚠️ UI tree is empty!")
+            print(f"   ⚠️ UI tree empty!")
             return False
         
         tl = target.lower().strip()
@@ -491,7 +522,8 @@ class ScreenController:
     # Strategy 4: Vision — FAST (uses background screenshot cache)
     # =========================================================
     def _vision_find_and_tap_fast(self, target: str) -> bool:
-        """Use vision model. Captures screenshot on demand (cached 2s)."""
+        """Use vision model. Tries text-based search first, then icon-based."""
+        # First try: text-based element finding
         result = self.vision.find_element_fast(target)
         if result.coordinates and result.confidence > 0.4:
             x, y = result.coordinates
@@ -512,16 +544,42 @@ class ScreenController:
             except Exception:
                 pass
             
-            print(f"🎯 Vision found at ({x}, {y}): {result.description} (confidence: {result.confidence:.0%})")
+            print(f"🎯 Vision found at ({x}, {y}): {result.description} (conf: {result.confidence:.0%})")
             self.device.tap(x, y)
             time.sleep(0.5)
             print(f"✅ {result.description} (vision)")
+            return True
+        
+        # Second try: icon/appearance-based finding (better for buttons, icons)
+        print(f"   ℹ️ Text search didn't work, trying visual appearance...")
+        icon_result = self.vision.find_icon_by_appearance(f"a button or icon for '{target}'")
+        if icon_result.coordinates and icon_result.confidence > 0.4:
+            x, y = icon_result.coordinates
+            
+            # Validate coordinates
+            try:
+                w, h = self.device.screen_size()
+                if x < 10 or x > w - 10 or y < 10 or y > h - 10:
+                    print(f"   ⚠️ Icon coordinates at edge, skipping")
+                    return False
+                if not (0 <= x <= w and 0 <= y <= h):
+                    return False
+                    
+            except Exception:
+                pass
+            
+            print(f"🎯 Icon found at ({x}, {y}): {icon_result.description} (conf: {icon_result.confidence:.0%})")
+            self.device.tap(x, y)
+            time.sleep(0.5)
+            print(f"✅ {icon_result.description} (vision icon)")
             return True
         
         if result.description and "not" in result.description.lower():
             print(f"   ℹ️ Vision: {result.description}")
         else:
             print(f"❌ Vision couldn't find: {target}")
+        
+        return False
     
     def _vision_find_and_tap(self, target: str) -> bool:
         """Legacy: capture + find. Use _fast version when possible."""

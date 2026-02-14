@@ -33,7 +33,17 @@ class AdbClient:
         )
         if p.returncode != 0:
             raise RuntimeError(p.stderr.strip() or f"Failed: {[self.adb]+args}")
-        return p.stdout.strip()
+        return p.stdout
+    
+    def run_binary(self, args: List[str]) -> bytes:
+        """Run ADB and return raw binary output (for XML, images, etc)."""
+        p = subprocess.run(
+            [self.adb] + args,
+            capture_output=True
+        )
+        if p.returncode != 0:
+            raise RuntimeError(f"Failed: {[self.adb]+args}: {p.stderr.decode('utf-8', errors='replace')}")
+        return p.stdout
 
     def ensure_device(self) -> list[str]:
         out = self.run(["devices"])

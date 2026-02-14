@@ -170,10 +170,23 @@ class OllamaVision:
     
     def find_element(self, image_path_or_b64: str, description: str,
                      is_b64: bool = False) -> VisionResult:
-        """Find element — uses cached screenshot if available."""
+        """Find element by text OR icon - uses cached screenshot if available."""
+        # Enhanced prompt: asks for text, icons, buttons, AND visual features
         prompt = f"""Find "{description}" on this mobile screen ({self.screen_width}x{self.screen_height}).
-Reply ONLY with JSON: {{"found":true,"x":123,"y":456,"description":"what you found"}}
-If not found: {{"found":false}}"""
+
+Look for:
+1. Text/labels containing these words
+2. Buttons/icons with matching appearance
+3. Visual elements (colored buttons, badges, checkmarks)
+
+For "{description}", describe:
+- Is it text label? Icon? Colored button?
+- Location: top/middle/bottom, left/center/right
+- Color/appearance if relevant
+- Confidence level
+
+Reply ONLY with JSON: {{"found":true,"x":123,"y":456,"element_type":"text/button/icon/other","description":"what you found"}}
+If not found: {{"found":false,"reason":"..."}}"""
 
         result = self.analyze_image(image_path_or_b64, prompt, 0.1, is_b64)
         
@@ -181,7 +194,7 @@ If not found: {{"found":false}}"""
             data = json.loads(result.description)
             if data.get('found'):
                 return VisionResult(
-                    description=data.get('description', description),
+                    description=f"{data.get('element_type', 'element')}: {data.get('description', description)}",
                     coordinates=(data.get('x', 0), data.get('y', 0)),
                     confidence=0.8
                 )
@@ -203,9 +216,22 @@ If not found: {{"found":false}}"""
         if not self.available:
             return VisionResult(description="Vision not available", confidence=0.0)
         
-        prompt = "Briefly describe this mobile screen: app name, main content, available actions. Under 80 words."
+        # Enhanced prompt to describe icons, buttons, AND text
+        prompt = """Describe this mobile screen:
+- App name or what it shows
+- Main visual elements (icons, buttons, badges, images)
+- Text labels and their locations
+- Available actions (what can be tapped?)
+Under 100 words."""
+        
         if detailed:
-            prompt = "Describe this screen in detail: app, content, buttons, state."
+            prompt = """Detailed screen description:
+- App/content type
+- Layout (top/middle/bottom sections)
+- Icons with descriptions (subscribe, share, menu, settings, etc.)
+- Text, labels, buttons
+- Colors and visual state
+- Interactive elements location"""
         
         if image_path:
             return self.analyze_image(image_path, prompt, 0.3)
@@ -227,6 +253,45 @@ If not found: {{"found":false}}"""
     def answer_question(self, image_path: str, question: str) -> VisionResult:
         prompt = f"Question about this mobile screen: {question}\nAnswer concisely."
         return self.analyze_image(image_path, prompt, 0.2)
+    
+    def find_icon_by_appearance(self, description: str) -> VisionResult:
+        """
+        Find element by visual appearance (icon, color, button type).
+        Better for non-text UI elements like colored buttons, badges, etc.
+        """
+        b64 = self.capture_screenshot_b64()
+        if not b64:
+            return VisionResult(description="No screenshot available", confidence=0.0)
+        
+        # Specialized prompt for visual/icon-based elements
+        prompt = f"""Find a {description} on this mobile screen ({self.screen_width}x{self.screen_height}).
+
+This might be:
+- An icon (colored symbol, image)
+- A button with specific appearance or color
+- A badge or notification
+- Visual indicator or symbol
+
+Describe what you found and give coordinates.
+Reply ONLY with JSON: {{"found":true,"x":123,"y":456,"element_type":"icon/button/badge/other","visual_description":"colored button, heart icon, etc."}}
+If not found: {{"found":false}}"""
+        
+        result = self.analyze_image(b64, prompt, 0.1, is_b64=True)
+        
+        try:
+            data = json.loads(result.description)
+            if data.get('found'):
+                return VisionResult(
+                    description=f"Found {data.get('element_type', 'element')}: {data.get('visual_description', description)}",
+                    coordinates=(data.get('x', 0), data.get('y', 0)),
+                    confidence=0.75
+                )
+        except json.JSONDecodeError:
+            coords = self._extract_coords(result.description)
+            if coords:
+                return VisionResult(description=description, coordinates=coords, confidence=0.5)
+        
+        return VisionResult(description=result.description, confidence=0.2)
     
     def find_nth_item(self, image_path: str, item_type: str, position: int) -> VisionResult:
         ords = {1: "first", 2: "second", 3: "third", 4: "fourth", 5: "fifth"}

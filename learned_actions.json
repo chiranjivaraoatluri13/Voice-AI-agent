@@ -56,5 +56,26 @@
     "source": "llm",
     "examples": [],
     "timestamp": 1771044360.020493
+  },
+  "click on gulte pro": {
+    "action": "VISION_QUERY",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1771046466.6181884
+  },
+  "set alaram at 5 am": {
+    "action": "EXIT",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1771047280.3758316
+  },
+  "alarm": {
+    "action": "MEDIA_PLAY",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1771047360.649371
   }
 }
