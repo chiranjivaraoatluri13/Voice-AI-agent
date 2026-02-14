@@ -47,5 +47,14 @@
     "source": "llm",
     "examples": [],
     "timestamp": 1771042027.8174589
+  },
+  "click on geetha arts": {
+    "action": "VISION_QUERY",
+    "params": {
+      "query": "geetha arts"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1771044360.020493
   }
 }

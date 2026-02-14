@@ -38,7 +38,10 @@ UI_ELEMENT_KNOWLEDGE = {
     "pause": ["Pause", "Pause video"],
     "like": ["Like", "Like button", "Heart"],
     "share": ["Share", "Share button"],
-    "subscribe": ["Subscribe", "Subscribe button"],
+    "subscribe": ["Subscribe", "Subscribe button", "SUBSCRIBE"],
+    "unsubscribe": ["Unsubscribe", "Unsubscribe button", "UNSUBSCRIBE"],
+    "follow": ["Follow", "FOLLOW"],
+    "unfollow": ["Unfollow", "Unfollow button", "UNFOLLOW"],
     "download": ["Download", "Save"],
     "shutter": ["Shutter", "Capture", "Take photo"],
     "switch camera": ["Switch camera", "Flip"],
@@ -50,7 +53,6 @@ UI_ELEMENT_KNOWLEDGE = {
     "cancel": ["Cancel", "Dismiss"],
     "refresh": ["Refresh", "Reload"],
     "comment": ["Comment", "Comments"],
-    "follow": ["Follow"],
     "profile": ["Profile", "Account", "Avatar"],
     "home": ["Home", "Home tab"],
     "notifications": ["Notifications", "Alerts"],
@@ -87,6 +89,9 @@ class ScreenController:
             self.vision.set_screen_size(w, h)
         except Exception:
             pass
+        
+        # Start background UI cache watcher
+        self.ui_analyzer.start_cache_watcher()
     
     def start_watching(self) -> None:
         """Start background vision watching. Call after init."""
@@ -94,6 +99,10 @@ class ScreenController:
     
     def stop_watching(self) -> None:
         self.vision.stop_watching()
+
+    def dump_screen_state(self) -> str:
+        """Dump current screen state for debugging."""
+        return self.ui_analyzer.dump_screen_elements()
 
     def capture_screenshot(self, force: bool = False) -> str:
         """Capture screenshot to file (for OCR). Uses vision cache when possible."""
@@ -142,6 +151,11 @@ class ScreenController:
         target = query.strip()
         target_lower = target.lower()
         
+        # Debug commands
+        if target_lower in ["dump", "screen elements", "what's on screen", "what elements"]:
+            print("\n" + self.dump_screen_state())
+            return True
+        
         # Check for ordinal/position queries: "the first post", "second video"
         ordinal_result = self._check_ordinal(target_lower)
         if ordinal_result:
@@ -161,6 +175,11 @@ class ScreenController:
         if self._try_content_desc(search_text):
             return True
         if self._try_ui_tree_search(search_text):
+            return True
+        
+        # Brute force: search all elements for ANY partial match of target
+        print(f"   ⚠️ Standard search failed. Trying brute-force text match...")
+        if self._brute_force_text_search(target_lower):
             return True
         
         # OCR fallback
@@ -236,10 +255,136 @@ class ScreenController:
             desc = elem.content_desc.lower()
             for k in known:
                 if k.lower() in desc or desc in k.lower():
+                    if not elem.clickable and "Button" not in elem.class_name:
+                        continue
                     self.device.tap(*elem.center)
+                    time.sleep(0.3)
                     print(f"✅ {elem.content_desc}")
                     return True
         return False
+
+    def _brute_force_text_search(self, target: str) -> bool:
+        """
+        Last-resort search: look for ANY clickable element containing target text.
+        Useful when app uses custom element names not in our knowledge base.
+        Tries partial matching, case-insensitive, fuzzy matching.
+        """
+        self.ui_analyzer.capture_ui_tree(force_refresh=True)
+        if not self.ui_analyzer.last_elements:
+            print(f"   ⚠️ UI tree is empty!")
+            return False
+        
+        target_lower = target.lower()
+        # For partial word matching
+        target_words = set(target_lower.split())
+        candidates = []
+        
+        # Special keywords with high priority
+        high_priority_keywords = {
+            "subscribe": 50,
+            "unsubscribe": 50,
+            "follow": 45,
+            "unfollow": 45,
+            "like": 40,
+            "share": 40,
+        }
+        
+        # Find all clickable elements for debugging
+        clickable_elements = [e for e in self.ui_analyzer.last_elements if e.clickable or "Button" in e.class_name]
+        if not clickable_elements:
+            print(f"   ⚠️ No clickable elements found in UI tree")
+            return False
+        
+        print(f"   📍 Checking {len(clickable_elements)} clickable elements for '{target_lower}'...")
+        for i, e in enumerate(clickable_elements[:10], 1):  # Show first 10
+            text_preview = (e.text or "")[:40]
+            desc_preview = (e.content_desc or "")[:40]
+            icon = "🔘"
+            if target_lower in (text_preview.lower() + desc_preview.lower()):
+                icon = "✓"
+            print(f"      {icon} {i}. '{text_preview}' | {desc_preview}")
+        
+        # Find all elements matching target
+        for elem in self.ui_analyzer.last_elements:
+            text = (elem.text or "").lower().strip()
+            desc = (elem.content_desc or "").lower().strip()
+            resource = (elem.resource_id or "").lower()
+            
+            # Skip empty elements
+            if not (text or desc):
+                continue
+            
+            combined = f"{text} {desc} {resource}"
+            priority = 0
+            match_reason = []
+            
+            # Special high-priority keywords
+            for keyword, boost in high_priority_keywords.items():
+                if keyword in combined:
+                    priority += boost
+                    match_reason.append(f"keyword:{keyword}")
+                    break  # Only match first keyword
+            
+            # Exact match (highest priority)
+            if text == target_lower or desc == target_lower:
+                priority += 20
+                match_reason.append("exact")
+            
+            # Substring match
+            if target_lower in text or target_lower in desc or target_lower in resource:
+                priority += 15
+                match_reason.append("substring")
+            
+            # Word overlap (e.g., "subscribe button" matches "subscribe")
+            text_words = set(text.split())
+            desc_words = set(desc.split())
+            combined_words = text_words | desc_words
+            word_overlap = len(target_words & combined_words)
+            if word_overlap > 0:
+                priority += word_overlap * 5
+                match_reason.append(f"words:{word_overlap}")
+            
+            # Starts with target (e.g., "Unsubscribe Now" starts with "unsubscribe")
+            if text.startswith(target_lower) or text.startswith(target_lower.split()[0]):
+                priority += 8
+                match_reason.append("starts_with")
+            
+            # Bonus for clickable/button
+            if elem.clickable:
+                priority += 3
+            if "Button" in elem.class_name:
+                priority += 2
+            
+            if priority > 0:
+                candidates.append((priority, elem, match_reason))
+        
+        if not candidates:
+            print(f"   ℹ️ No matching elements for '{target}'")
+            return False
+        
+        # Sort by priority (highest first)
+        candidates.sort(key=lambda x: x[0], reverse=True)
+        
+        # Tap the best candidate
+        best_priority, best_elem, reasons = candidates[0]
+        text_label = best_elem.text or best_elem.content_desc
+        print(f"   🎯 Best match: '{text_label}' (priority: {best_priority}, match: {'+'.join(reasons)})")
+        
+        # Double-check coordinates are valid
+        try:
+            w, h = self.device.screen_size()
+            x, y = best_elem.center
+            if not (0 < x < w and 0 < y < h):
+                print(f"   ⚠️ Coordinates out of bounds: ({x}, {y}) screen: {w}x{h}")
+                return False
+        except Exception as e:
+            print(f"   ⚠️ Could not validate coordinates: {e}")
+        
+        print(f"   📍 Tapping at ({best_elem.center[0]}, {best_elem.center[1]})")
+        self.device.tap(*best_elem.center)
+        time.sleep(0.5)  # Extra wait for brute-force matches
+        print(f"✅ {text_label}")
+        return True
 
     # =========================================================
     # Strategy 2: UI tree search
@@ -252,6 +397,7 @@ class ScreenController:
         """
         self.ui_analyzer.capture_ui_tree(force_refresh=True)
         if not self.ui_analyzer.last_elements:
+            print(f"   ⚠️ UI tree is empty!")
             return False
         
         tl = target.lower().strip()
@@ -259,10 +405,13 @@ class ScreenController:
             return False
         query_words = set(tl.split())
         
+        print(f"   📋 Checking {len(self.ui_analyzer.last_elements)} elements in UI tree...")
+        
         # Pass 1: Exact substring match in text
         for elem in self.ui_analyzer.last_elements:
             if elem.text and tl in elem.text.lower():
                 self.device.tap(*elem.center)
+                time.sleep(0.3)  # Allow UI to respond
                 print(f"✅ {elem.text}")
                 return True
         
@@ -270,6 +419,7 @@ class ScreenController:
         for elem in self.ui_analyzer.last_elements:
             if elem.content_desc and tl in elem.content_desc.lower():
                 self.device.tap(*elem.center)
+                time.sleep(0.3)  # Allow UI to respond
                 print(f"✅ {elem.content_desc}")
                 return True
         
@@ -308,6 +458,7 @@ class ScreenController:
         # Only tap if we matched at least 50% of query words
         if best_elem and best_score >= 0.5:
             self.device.tap(*best_elem.center)
+            time.sleep(0.3)  # Allow UI to respond
             label = best_elem.text or best_elem.content_desc
             print(f"✅ {label} ({best_score:.0%} match)")
             return True
@@ -324,12 +475,14 @@ class ScreenController:
         matches = self.ocr.find_text(screenshot, target)
         if matches:
             self.device.tap(*matches[0].center)
+            time.sleep(0.3)  # Allow UI to respond
             print(f"✅ {matches[0].text} (OCR)")
             return True
         fuzzy = self.ocr.find_text_fuzzy(screenshot, target, threshold=0.7)
         if fuzzy:
             _, match = fuzzy[0]
             self.device.tap(*match.center)
+            time.sleep(0.3)  # Allow UI to respond
             print(f"✅ {match.text} (OCR fuzzy)")
             return True
         return False
@@ -341,11 +494,34 @@ class ScreenController:
         """Use vision model. Captures screenshot on demand (cached 2s)."""
         result = self.vision.find_element_fast(target)
         if result.coordinates and result.confidence > 0.4:
-            self.device.tap(*result.coordinates)
+            x, y = result.coordinates
+            
+            # Validate coordinates are reasonable
+            try:
+                w, h = self.device.screen_size()
+                
+                # Check if coordinates are at edges (likely hallucinations)
+                if x < 10 or x > w - 10 or y < 10 or y > h - 10:
+                    print(f"   ⚠️ Coordinates at screen edge: ({x}, {y}), likely hallucination")
+                    return False
+                
+                if not (0 <= x <= w and 0 <= y <= h):
+                    print(f"❌ Invalid coordinates from vision: ({x}, {y}) - screen: {w}x{h}")
+                    return False
+                    
+            except Exception:
+                pass
+            
+            print(f"🎯 Vision found at ({x}, {y}): {result.description} (confidence: {result.confidence:.0%})")
+            self.device.tap(x, y)
+            time.sleep(0.5)
             print(f"✅ {result.description} (vision)")
             return True
-        print(f"❌ Vision couldn't find: {target}")
-        return False
+        
+        if result.description and "not" in result.description.lower():
+            print(f"   ℹ️ Vision: {result.description}")
+        else:
+            print(f"❌ Vision couldn't find: {target}")
     
     def _vision_find_and_tap(self, target: str) -> bool:
         """Legacy: capture + find. Use _fast version when possible."""

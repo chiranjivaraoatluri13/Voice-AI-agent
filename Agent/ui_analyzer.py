@@ -10,6 +10,8 @@ import xml.etree.ElementTree as ET
 from typing import List, Optional, Tuple
 from dataclasses import dataclass
 from agent.adb import AdbClient
+import threading
+import time
 
 
 @dataclass
@@ -49,12 +51,89 @@ class UIElement:
 class UIAnalyzer:
     """
     Fast UI tree analysis using Android's UI Automator.
+    Includes background caching thread for continuous updates.
     """
     
     def __init__(self, adb: AdbClient) -> None:
         self.adb = adb
         self.last_tree: Optional[ET.Element] = None
         self.last_elements: List[UIElement] = []
+        
+        # Background caching system
+        self._cache_thread: Optional[threading.Thread] = None
+        self._cache_lock = threading.Lock()
+        self._cache_running = False
+        self._cached_elements: List[UIElement] = []
+        self._cache_timestamp = 0
+        self._cache_ttl = 1.0  # 1 second TTL
+    
+    # -------------------------
+    # Background Cache Watcher
+    # -------------------------
+    def start_cache_watcher(self) -> None:
+        """Start background thread that continuously updates UI cache."""
+        if self._cache_running:
+            return
+        
+        self._cache_running = True
+        self._cache_thread = threading.Thread(target=self._cache_watcher_loop, daemon=True)
+        self._cache_thread.start()
+        print("✅ UI cache watcher started (updates every 1s)")
+    
+    def stop_cache_watcher(self) -> None:
+        """Stop background cache watcher thread."""
+        self._cache_running = False
+        if self._cache_thread:
+            self._cache_thread.join(timeout=2)
+            self._cache_thread = None
+        print("🛑 UI cache watcher stopped")
+    
+    def _cache_watcher_loop(self) -> None:
+        """Background thread loop: continuously update UI cache every second."""
+        while self._cache_running:
+            try:
+                self.adb.run(["shell", "uiautomator", "dump", "/sdcard/ui_dump.xml"])
+                xml_content = self.adb.run(["shell", "cat", "/sdcard/ui_dump.xml"])
+                tree = ET.fromstring(xml_content)
+                elements = self._parse_tree(tree)
+                
+                with self._cache_lock:
+                    self._cached_elements = elements
+                    self._cache_timestamp = time.time()
+                
+                time.sleep(self._cache_ttl)
+            except Exception:
+                time.sleep(0.5)
+    
+    def get_cached_elements(self) -> List[UIElement]:
+        """Get cached UI elements if fresh, otherwise return empty list."""
+        with self._cache_lock:
+            now = time.time()
+            if now - self._cache_timestamp < self._cache_ttl:
+                return self._cached_elements.copy()
+            return []
+    
+    def dump_screen_elements(self) -> str:
+        """Dump all screen elements as human-readable text for debugging."""
+        with self._cache_lock:
+            elements = self._cached_elements.copy()
+        
+        if not elements:
+            return "No cached elements. Start cache watcher first."
+        
+        output = [f"Screen Elements ({len(elements)} total):"]
+        clickable = [e for e in elements if e.clickable or "Button" in e.class_name]
+        output.append(f"Clickable/Button elements: {len(clickable)}")
+        
+        for i, elem in enumerate(clickable[:20], 1):
+            text = elem.text or elem.content_desc or "[no text]"
+            text = text[:50]
+            output.append(f"  {i:2d}. {text:50s} | {elem.class_name}")
+        
+        if len(clickable) > 20:
+            output.append(f"  ... and {len(clickable) - 20} more")
+        
+        return "\n".join(output)
     
     # -------------------------
     # UI Hierarchy Capture
@@ -64,8 +143,11 @@ class UIAnalyzer:
         Capture current UI hierarchy from device.
         Cached by default unless force_refresh=True.
         """
-        if not force_refresh and self.last_tree is not None:
-            return
+        if not force_refresh:
+            cached = self.get_cached_elements()
+            if cached:
+                self.last_elements = cached
+                return
         
         try:
             # Dump UI hierarchy to device
@@ -80,8 +162,12 @@ class UIAnalyzer:
             # Parse all elements
             self.last_elements = self._parse_tree(self.last_tree)
             
+            # Update cache
+            with self._cache_lock:
+                self._cached_elements = self.last_elements.copy()
+                self._cache_timestamp = time.time()
+            
         except Exception as e:
-            print(f"âš ï¸ UI tree capture failed: {e}")
             self.last_tree = None
             self.last_elements = []
     
