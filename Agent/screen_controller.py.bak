@@ -231,7 +231,7 @@ class ScreenController:
         if not known:
             return False
         
-        self.ui_analyzer.capture_ui_tree(force_refresh=True)
+        self.ui_analyzer.capture_ui_tree()
         for elem in self.ui_analyzer.last_elements:
             desc = elem.content_desc.lower()
             for k in known:
@@ -250,7 +250,7 @@ class ScreenController:
         1. Exact substring match (highest confidence)
         2. Word-overlap match (handles partial queries)
         """
-        self.ui_analyzer.capture_ui_tree(force_refresh=True)
+        self.ui_analyzer.capture_ui_tree()
         if not self.ui_analyzer.last_elements:
             return False
         

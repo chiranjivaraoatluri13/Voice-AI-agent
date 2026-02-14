@@ -45,3 +45,6 @@ Samsung Notes=com.samsung.android.app.notes
 Phone=com.samsung.android.dialer
 Google=com.google.android.googlequicksearchbox
 Instagram=com.instagram.android
+Facebook=com.facebook.katana
+Temu=com.einnovation.temu
+Instagram=com.instagram.android

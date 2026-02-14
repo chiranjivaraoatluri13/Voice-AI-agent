@@ -2,14 +2,13 @@
 # FILE: agent/controller.py
 # =========================
 """
-Controller v5 — SPEED FOCUSED.
+Controller v6 — IntentEngine integrated.
 
-Key speed fixes:
-1. _get_current_app() ONLY called for commands that need context
-   (open, send, play/pause, search) — NOT for back, home, volume, scroll
-2. Vision background thread pre-captures screenshots
-3. UI element finders reuse already-captured tree (no extra ADB calls)
-4. Basic commands (back, home, volume) are truly instant
+Changes from v5:
+  - Replaced `from agent.planner import plan` with IntentEngine
+  - All plan() calls → engine.understand()
+  - Added CLOSE_APP, VOLUME_MUTE, VOLUME_MAX handlers
+  - engine passed through to MULTI_STEP sub-commands
 """
 
 import re
@@ -19,15 +18,15 @@ from agent.device import DeviceController
 from agent.apps import AppResolver
 from agent.learner import CommandLearner
 from agent.screen_controller import ScreenController
-from agent.planner import plan
+from agent.intent_engine import IntentEngine          # ← CHANGED from planner
 from agent.schema import Command
 
 # Commands that DON'T need current app context
 # These skip _get_current_app() entirely → instant
 NO_CONTEXT_ACTIONS = {
-    "EXIT", "WAKE", "BACK", "HOME", "CLOSE_ALL", "TAP", "TYPE_TEXT",
+    "EXIT", "WAKE", "BACK", "HOME", "CLOSE_ALL", "CLOSE_APP", "TAP", "TYPE_TEXT",
     "SCROLL", "REINDEX_APPS", "FIND_APP", "KEYEVENT",
-    "VOLUME_UP", "VOLUME_DOWN",
+    "VOLUME_UP", "VOLUME_DOWN", "VOLUME_MUTE", "VOLUME_UNMUTE", "VOLUME_MAX",
     "TEACH_LAST", "TEACH_CUSTOM", "TEACH_SHORTCUT", "FORGET_MAPPING", "LIST_MAPPINGS",
 }
 
@@ -83,6 +82,7 @@ def run_cli() -> None:
     learner = CommandLearner()
     apps = AppResolver(adb, learner)
     screen = ScreenController(adb, device)
+    engine = IntentEngine(llm_model="llama3:latest")   # ← NEW
     device.wake()
 
     # Workflow system (self-contained, graceful degradation)
@@ -135,9 +135,9 @@ def run_cli() -> None:
                 current_app = _get_current_app(adb)
                 for i, step_cmd in enumerate(data):
                     print(f"  ▶ Step {i+1}: {step_cmd}")
-                    sub = plan(step_cmd, current_app=current_app)
+                    sub = engine.understand(step_cmd, current_app=current_app)  # ← CHANGED
                     if sub and sub.action != "EXIT":
-                        execute_command(sub, device, apps, learner, screen, adb, current_app)
+                        execute_command(sub, device, apps, learner, screen, adb, current_app, engine)
                         time.sleep(0.5)
                         current_app = _get_current_app(adb)
                 print(f"✅ Done\n")
@@ -146,7 +146,7 @@ def run_cli() -> None:
                 # "pass" — normal flow, utter may have been modified during recording
                 utter = data
             
-            # ── NORMAL COMMAND (unchanged from v5) ──
+            # ── NORMAL COMMAND ──
             t_lower = utter.lower().strip()
             needs_context = _needs_app_context(t_lower)
             if needs_context:
@@ -158,7 +158,7 @@ def run_cli() -> None:
             else:
                 current_app = _cached_app
 
-            cmd = plan(utter, current_app=current_app)
+            cmd = engine.understand(utter, current_app=current_app)  # ← CHANGED
             if not cmd:
                 print("❌ Didn't understand.")
                 continue
@@ -169,7 +169,7 @@ def run_cli() -> None:
                 print("Stopping.")
                 break
             
-            execute_command(cmd, device, apps, learner, screen, adb, current_app)
+            execute_command(cmd, device, apps, learner, screen, adb, current_app, engine)  # ← CHANGED
 
         except KeyboardInterrupt:
             screen.stop_watching()
@@ -192,7 +192,7 @@ def _needs_app_context(t: str) -> bool:
     return False
 
 
-def execute_command(cmd, device, apps, learner, screen, adb, current_app=""):
+def execute_command(cmd, device, apps, learner, screen, adb, current_app="", engine=None):  # ← engine added
     # === INSTANT commands (no ADB overhead) ===
     if cmd.action == "WAKE":
         device.wake(); return
@@ -202,6 +202,8 @@ def execute_command(cmd, device, apps, learner, screen, adb, current_app=""):
         device.back(); return
     if cmd.action == "CLOSE_ALL":
         device.close_all_apps(); return
+    if cmd.action == "CLOSE_APP":                      # ← NEW
+        device.back(); print("✅ Closed app"); return
     if cmd.action == "TAP":
         if cmd.x is not None and cmd.y is not None:
             device.tap_exact(cmd.x, cmd.y)
@@ -218,6 +220,10 @@ def execute_command(cmd, device, apps, learner, screen, adb, current_app=""):
         device.volume_up(cmd.amount if cmd.amount > 1 else 2); return
     if cmd.action == "VOLUME_DOWN":
         device.volume_down(cmd.amount if cmd.amount > 1 else 2); return
+    if cmd.action == "VOLUME_MUTE":                    # ← NEW
+        adb.run(["shell", "input", "keyevent", "KEYCODE_VOLUME_MUTE"]); return
+    if cmd.action == "VOLUME_UNMUTE":                  # ← NEW
+        adb.run(["shell", "input", "keyevent", "KEYCODE_VOLUME_MUTE"]); return
 
     # === Media (instant) ===
     if cmd.action == "MEDIA_PLAY":
@@ -278,12 +284,18 @@ def execute_command(cmd, device, apps, learner, screen, adb, current_app=""):
             if not step:
                 continue
             print(f"\n  Step {i+1}: {step}")
-            sub_cmd = plan(step, current_app=current_app)
+            if engine:
+                sub_cmd = engine.understand(step, current_app=current_app)
+            else:
+                sub_cmd = None
             if sub_cmd and sub_cmd.action != "EXIT":
-                execute_command(sub_cmd, device, apps, learner, screen, adb, current_app)
-                # Update current app after each step (app may have changed)
+                execute_command(sub_cmd, device, apps, learner, screen, adb, current_app, engine)
                 import time as _t
-                _t.sleep(0.5)
+                # Wait longer after app launch — app needs time to fully load UI
+                if sub_cmd.action == "OPEN_APP":
+                    _t.sleep(2.0)
+                else:
+                    _t.sleep(0.5)
                 current_app = _get_current_app(adb)
         return
 
@@ -444,12 +456,20 @@ def _do_search(cmd, device, apps, screen, adb):
         pkg = apps.resolve_or_ask(cmd.text, allow_learning=False)
         if pkg:
             device.launch(pkg)
-            time.sleep(1.5)
+            time.sleep(2.0)
             screen.ui_analyzer.last_tree = None
 
-    time.sleep(0.3)
-    screen.ui_analyzer.capture_ui_tree(force_refresh=True)
-    elem = _find_search(screen)
+    # Try to find search bar — retry if app is still loading
+    elem = None
+    for attempt in range(3):
+        time.sleep(0.5)
+        screen.ui_analyzer.capture_ui_tree(force_refresh=True)
+        elem = _find_search(screen)
+        if elem:
+            break
+        if attempt < 2:
+            print(f"   ⏳ Waiting for search bar... ({attempt + 1}/3)")
+            time.sleep(1.0)
 
     if elem:
         device.tap(*elem.center)
@@ -543,14 +563,30 @@ def _tap_send(screen, device) -> bool:
 
 
 def _find_search(screen):
+    # Priority 1: EditText that mentions search/find/query
     for e in screen.ui_analyzer.last_elements:
         combined = (e.content_desc + e.text + e.resource_id).lower()
         if "EditText" in e.class_name and any(k in combined for k in ["search", "find", "query"]):
             return e
-        if any(k in e.content_desc.lower() for k in ["search", "find", "magnify"]) and e.clickable:
+    
+    # Priority 2: Clickable element with search-related content_desc
+    # Gmail uses "Search in mail", YouTube uses "Search", etc.
+    for e in screen.ui_analyzer.last_elements:
+        desc = e.content_desc.lower()
+        if any(k in desc for k in ["search", "find", "magnify"]) and e.clickable:
             return e
-        if any(k in e.resource_id.lower() for k in ["search", "action_search", "search_button"]):
+    
+    # Priority 3: Resource ID with search
+    for e in screen.ui_analyzer.last_elements:
+        if any(k in e.resource_id.lower() for k in ["search", "action_search", "search_button",
+                                                       "search_bar", "open_search"]):
             return e
+    
+    # Priority 4: Text that says "Search" (some apps use plain TextView for search bar)
+    for e in screen.ui_analyzer.last_elements:
+        if e.text and e.text.lower().startswith("search") and e.clickable:
+            return e
+    
     return None
 
 

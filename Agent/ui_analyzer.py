@@ -55,8 +55,6 @@ class UIAnalyzer:
         self.adb = adb
         self.last_tree: Optional[ET.Element] = None
         self.last_elements: List[UIElement] = []
-        self._last_capture_time: float = 0
-        self._cache_ttl: float = 3.0  # seconds before auto-refresh
     
     # -------------------------
     # UI Hierarchy Capture
@@ -64,13 +62,9 @@ class UIAnalyzer:
     def capture_ui_tree(self, force_refresh: bool = False) -> None:
         """
         Capture current UI hierarchy from device.
-        Auto-refreshes if cache is older than 3 seconds.
+        Cached by default unless force_refresh=True.
         """
-        import time
-        now = time.time()
-        is_stale = (now - self._last_capture_time) > self._cache_ttl
-        
-        if not force_refresh and not is_stale and self.last_tree is not None:
+        if not force_refresh and self.last_tree is not None:
             return
         
         try:
@@ -85,7 +79,6 @@ class UIAnalyzer:
             
             # Parse all elements
             self.last_elements = self._parse_tree(self.last_tree)
-            self._last_capture_time = now
             
         except Exception as e:
             print(f"âš ï¸ UI tree capture failed: {e}")
@@ -203,10 +196,19 @@ class UIAnalyzer:
     def search(self, query: str) -> List[UIElement]:
         """
         Smart search across text, ID, and description.
-        Auto-refreshes UI tree if stale (>3 sec old).
-        Returns ranked results, preferring elements with actual text.
+        Returns ranked results.
+        
+        Scoring priorities:
+          1. Exact text match (100)
+          2. Text starts with query / query starts text (70)
+          3. Description starts with query — action buttons like "Subscribe to..." (60)
+          4. Text contains query as substring (50)
+          5. Description contains query (30), but penalize partial word matches
+          6. Resource ID match (20)
+          7. Clickable bonus (10)
+          8. Smaller elements preferred over large containers (-5 for huge elements)
         """
-        self.capture_ui_tree()  # TTL-based auto-refresh
+        self.capture_ui_tree()
         
         query_lower = query.lower()
         scored_results = []
@@ -214,32 +216,54 @@ class UIAnalyzer:
         for elem in self.last_elements:
             score = 0
             
-            # Exact text match (highest priority)
-            if elem.text and elem.text.lower() == query_lower:
-                score += 100
+            text_lower = (elem.text or "").lower()
+            desc_lower = (elem.content_desc or "").lower()
+            rid_lower = (elem.resource_id or "").lower()
             
-            # Text contains query
-            elif elem.text and query_lower in elem.text.lower():
-                score += 50
+            # --- Text scoring ---
+            if text_lower:
+                if text_lower == query_lower:
+                    # Exact text match (highest)
+                    score += 100
+                elif text_lower.startswith(query_lower) or query_lower.startswith(text_lower):
+                    # Text starts with query or vice versa
+                    score += 70
+                elif query_lower in text_lower:
+                    # Substring match — but check if it's a whole word
+                    # "subscribe" in "subscribers" is partial → lower score
+                    if self._is_word_match(query_lower, text_lower):
+                        score += 50
+                    else:
+                        score += 25  # partial word match penalty
             
-            # Content description match
-            if elem.content_desc and query_lower in elem.content_desc.lower():
-                score += 30
+            # --- Content description scoring ---
+            if desc_lower and query_lower in desc_lower:
+                if desc_lower.startswith(query_lower):
+                    # Description STARTS with query → this is an action button
+                    # "Subscribe to Sun NXT Telugu." → high priority
+                    score += 60
+                elif self._is_word_match(query_lower, desc_lower):
+                    # Whole word match in description
+                    score += 30
+                else:
+                    # Partial match: "subscribers" contains "subscribe"
+                    score += 15
             
-            # Resource ID match
-            if elem.resource_id and query_lower in elem.resource_id.lower():
+            # --- Resource ID scoring ---
+            if rid_lower and query_lower in rid_lower:
                 score += 20
             
-            # Boost clickable elements
-            if elem.clickable:
+            # --- Clickable bonus ---
+            if elem.clickable and score > 0:
                 score += 10
             
-            # PENALIZE containers with no text (LinearLayout, FrameLayout, etc.)
-            # These often match via clickable boost alone and cause wrong taps
-            if score > 0 and not elem.text and not elem.content_desc:
-                container_classes = ["Layout", "ViewGroup", "RecyclerView", "ScrollView"]
-                if any(c in elem.class_name for c in container_classes):
-                    score -= 15  # Push below text-bearing elements
+            # --- Size penalty: prefer focused elements over huge containers ---
+            if score > 0:
+                area = elem.width * elem.height
+                if area > 500000:  # very large element (probably a container)
+                    score -= 5
+                if elem.width < 50 or elem.height < 50:
+                    score -= 5  # too tiny, probably not a real button
             
             if score > 0:
                 scored_results.append((score, elem))
@@ -248,6 +272,12 @@ class UIAnalyzer:
         scored_results.sort(key=lambda x: x[0], reverse=True)
         
         return [elem for score, elem in scored_results]
+    
+    @staticmethod
+    def _is_word_match(query: str, text: str) -> bool:
+        """Check if query appears as a whole word in text, not as part of another word."""
+        import re
+        return bool(re.search(r'\b' + re.escape(query) + r'\b', text))
     
     # -------------------------
     # Position-based queries
@@ -351,187 +381,78 @@ class UIAnalyzer:
     # -------------------------
     def detect_list_items(self, min_items: int = 2) -> List[UIElement]:
         """
-        Detect feed/list items (videos, posts, pins, etc.).
-        
-        Strategy order:
-        1. Find RecyclerView children (most reliable)
-        2. Find clickable elements with content (text/desc) in scroll area
-        3. Size-grouping fallback
+        Detect repeating list items (videos, posts, products, etc.).
+        Returns items sorted top-to-bottom, deduplicated.
         """
         self.capture_ui_tree()
-        if not self.last_elements:
-            return []
         
-        # Get screen bounds
-        max_w = max((e.bounds[2] for e in self.last_elements), default=1080)
-        max_h = max((e.bounds[3] for e in self.last_elements), default=2400)
-        
-        # Strategy 1: Find items inside RecyclerView/ListView
-        items = self._find_recycler_children(max_w, max_h)
-        if len(items) >= min_items:
-            return items
-        
-        # Strategy 2: Clickable content elements in the main scroll area
-        items = self._find_clickable_content(max_w, max_h)
-        if len(items) >= min_items:
-            return items
-        
-        # Strategy 3: Size-grouping fallback
-        items = self._find_by_size_grouping(max_w, max_h, min_items)
-        return items
-    
-    def _find_recycler_children(self, max_w: int, max_h: int) -> List[UIElement]:
-        """Find children of RecyclerView/ListView — these ARE the list items."""
-        # First find the scrollable/recycler container
-        recycler = None
-        recycler_area = 0
-        
-        for elem in self.last_elements:
-            cls = elem.class_name.lower()
-            if any(rv in cls for rv in ["recyclerview", "listview", "gridview"]):
-                area = elem.width * elem.height
-                if area > recycler_area:
-                    recycler = elem
-                    recycler_area = area
-        
-        if not recycler:
-            # Also try scrollable elements
-            for elem in self.last_elements:
-                if elem.scrollable and elem.width > max_w * 0.5 and elem.height > max_h * 0.3:
-                    area = elem.width * elem.height
-                    if area > recycler_area:
-                        recycler = elem
-                        recycler_area = area
-        
-        if not recycler:
-            return []
-        
-        # Find elements that are direct content inside this recycler
-        # They should: be inside recycler bounds, be substantial size, be at the top level
-        rl, rt, rr, rb = recycler.bounds
-        items = []
-        
-        for elem in self.last_elements:
-            if elem is recycler:
-                continue
-            el, et, er, eb = elem.bounds
-            
-            # Must be inside recycler
-            if el < rl or et < rt or er > rr + 5 or eb > rb + 5:
-                continue
-            
-            w, h = elem.width, elem.height
-            
-            # Must be substantial (not tiny icons or text fragments)
-            if w < max_w * 0.3 or h < 80:
-                continue
-            
-            # Skip if it's basically the full recycler (it IS the recycler)
-            if w >= (rr - rl) * 0.95 and h >= (rb - rt) * 0.8:
-                continue
-            
-            # Must be clickable OR have content
-            if elem.clickable or elem.text or elem.content_desc:
-                items.append(elem)
-        
-        if not items:
-            return []
-        
-        # Deduplicate: if elements overlap vertically, keep the larger one
-        items.sort(key=lambda e: e.bounds[1])
-        deduped = []
-        for item in items:
-            if deduped:
-                last = deduped[-1]
-                # Check vertical overlap
-                overlap = min(last.bounds[3], item.bounds[3]) - max(last.bounds[1], item.bounds[1])
-                if overlap > min(last.height, item.height) * 0.5:
-                    # Keep the larger/more clickable one
-                    if item.height > last.height or (item.clickable and not last.clickable):
-                        deduped[-1] = item
-                    continue
-            deduped.append(item)
-        
-        return deduped
-    
-    def _find_clickable_content(self, max_w: int, max_h: int) -> List[UIElement]:
-        """
-        Find clickable elements with content in the main content area.
-        Filters out toolbar, nav bar, and tiny elements.
-        """
-        # Content area: skip top 10% (toolbar) and bottom 10% (nav)
-        content_top = max_h * 0.10
-        content_bottom = max_h * 0.90
-        
-        items = []
-        for elem in self.last_elements:
-            # Must be clickable
-            if not elem.clickable:
-                continue
-            
-            # Must be in content area
-            if elem.bounds[1] < content_top or elem.bounds[3] > content_bottom:
-                continue
-            
-            # Must have real size (not tiny icons)
-            if elem.width < max_w * 0.25 or elem.height < 80:
-                continue
-            
-            # Must have content OR be a substantial container
-            has_content = bool(elem.text or elem.content_desc)
-            is_substantial = elem.height > 150 and elem.width > max_w * 0.4
-            
-            if has_content or is_substantial:
-                items.append(elem)
-        
-        if not items:
-            return []
-        
-        # Sort top to bottom
-        items.sort(key=lambda e: e.bounds[1])
-        
-        # Deduplicate overlapping items (keep the best one)
-        deduped = []
-        for item in items:
-            if deduped:
-                last = deduped[-1]
-                overlap = min(last.bounds[3], item.bounds[3]) - max(last.bounds[1], item.bounds[1])
-                if overlap > min(last.height, item.height) * 0.3:
-                    # Keep the one with more content or larger area
-                    last_score = (1 if last.text else 0) + (1 if last.content_desc else 0) + last.height
-                    item_score = (1 if item.text else 0) + (1 if item.content_desc else 0) + item.height
-                    if item_score > last_score:
-                        deduped[-1] = item
-                    continue
-            deduped.append(item)
-        
-        return deduped
-    
-    def _find_by_size_grouping(self, max_w: int, max_h: int, min_items: int) -> List[UIElement]:
-        """Original size-grouping approach as final fallback."""
+        # Group elements by similar heights and widths
         from collections import defaultdict
         size_groups = defaultdict(list)
         
         for elem in self.last_elements:
-            w, h = elem.width, elem.height
-            if w < 80 or h < 80:
+            # Skip tiny or full-screen elements
+            if elem.width < 100 or elem.height < 100:
                 continue
-            if w >= max_w * 0.98 and h >= max_h * 0.8:
+            if elem.width > 900 or elem.height > 1500:
                 continue
-            if h > max_h * 0.6:
-                continue
-            if not (elem.clickable or elem.text or elem.content_desc):
-                continue
-            size_key = (round(w / 50) * 50, round(h / 50) * 50)
+            
+            # Group by approximate size (rounded to nearest 50px)
+            size_key = (
+                round(elem.width / 50) * 50,
+                round(elem.height / 50) * 50
+            )
             size_groups[size_key].append(elem)
         
+        # Find largest group (likely the repeating items)
         if not size_groups:
             return []
         
-        candidates = [g for g in size_groups.values() if len(g) >= min_items]
-        if not candidates:
+        largest_group = max(size_groups.values(), key=len)
+        
+        if len(largest_group) < min_items:
             return []
         
-        largest = max(candidates, key=len)
-        largest.sort(key=lambda e: (e.bounds[1], e.bounds[0]))
-        return largest
+        # Sort by position (top to bottom, left to right)
+        largest_group.sort(key=lambda e: (e.bounds[1], e.bounds[0]))
+        
+        # DEDUP: Remove overlapping/nested elements with same or very similar bounds
+        # Nested views (parent + child) share the same bounds — keep only one per position
+        deduped = []
+        for elem in largest_group:
+            is_duplicate = False
+            for existing in deduped:
+                if self._bounds_overlap(elem.bounds, existing.bounds):
+                    is_duplicate = True
+                    break
+            if not is_duplicate:
+                deduped.append(elem)
+        
+        return deduped
+    
+    @staticmethod
+    def _bounds_overlap(a, b, threshold: int = 30) -> bool:
+        """
+        Check if two bounds overlap significantly.
+        Catches nested elements (same bounds) and near-duplicates.
+        
+        Args:
+            a, b: (left, top, right, bottom) tuples
+            threshold: pixel tolerance for 'same position'
+        """
+        # Check if centers are very close
+        cx_a, cy_a = (a[0] + a[2]) // 2, (a[1] + a[3]) // 2
+        cx_b, cy_b = (b[0] + b[2]) // 2, (b[1] + b[3]) // 2
+        
+        if abs(cx_a - cx_b) < threshold and abs(cy_a - cy_b) < threshold:
+            return True
+        
+        # Check if one contains the other (nested)
+        if (a[0] >= b[0] - threshold and a[1] >= b[1] - threshold and
+            a[2] <= b[2] + threshold and a[3] <= b[3] + threshold):
+            return True
+        if (b[0] >= a[0] - threshold and b[1] >= a[1] - threshold and
+            b[2] <= a[2] + threshold and b[3] <= a[3] + threshold):
+            return True
+        
+        return False
