@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+.venv/
+env/
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Data / Runtime
+data/
+user_mappings.json
+ui_state_cache.json
+.voice_overlay.json
+
+# Logs
+*.log
+logs/
+
+# Binaries / Platform tools
+platform-tools-latest-windows/
+*.exe
+*.dll
+
+# Unused / archived scripts
+unused/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Temp files
+tmp_*.png
+
+# OS
+.DS_Store
+Thumbs.db

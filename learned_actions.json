@@ -1,0 +1,1071 @@
+{
+  "click the shocking update video": {
+    "action": "VISION_QUERY",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1771014959.9677906
+  },
+  "subscribe to this channel": {
+    "action": "OPEN_APP",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1771035422.0304937
+  },
+  "click on funky movie video": {
+    "action": "VISION_QUERY",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1771038428.2749555
+  },
+  "search for like on the screen": {
+    "action": "SEARCH_IN_APP",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1771039391.9517722
+  },
+  "search mails from asu,": {
+    "action": "SEARCH_IN_APP",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1771040327.8178828
+  },
+  "tap on 4th mail": {
+    "action": "OPEN_APP",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1771040924.6958134
+  },
+  "click on 5.1 k": {
+    "action": "VISION_QUERY",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1771042027.8174589
+  },
+  "click on geetha arts": {
+    "action": "VISION_QUERY",
+    "params": {
+      "query": "geetha arts"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1771044360.020493
+  },
+  "click on gulte pro": {
+    "action": "VISION_QUERY",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1771046466.6181884
+  },
+  "set alaram at 5 am": {
+    "action": "EXIT",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1771047280.3758316
+  },
+  "alarm": {
+    "action": "MEDIA_PLAY",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1771047360.649371
+  },
+  "select must watch video": {
+    "action": "OPEN_APP",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1771135277.400697
+  },
+  "tap on newton's 3rd law video": {
+    "action": "VISION_QUERY",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1771135303.1111894
+  },
+  "search chiru": {
+    "action": "SEARCH_IN_APP",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1771135396.391615
+  },
+  "select on shorts": {
+    "action": "OPEN_APP",
+    "params": {
+      "app": "shorts"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1771182434.4948106
+  },
+  "send hi to chiru": {
+    "action": "SEND_MESSAGE",
+    "params": {
+      "contact": "chiru",
+      "message": "hi"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1771185151.0763252
+  },
+  "brigtness set to 200": {
+    "action": "BRIGHTNESS_UP",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1771185335.9808424
+  },
+  "set brightness to 150": {
+    "action": "BRIGHTNESS_UP",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1771185364.2065234
+  },
+  "acroll more down": {
+    "action": "SCROLL_DOWN",
+    "params": {
+      "params": {
+        "amount": 1
+      },
+      "amount": 1
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785547207.4114487
+  },
+  "keep scrollig down": {
+    "action": "SCROLL_DOWN",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785547225.1751456
+  },
+  "search for telugu music": {
+    "action": "SEARCH_IN_APP",
+    "params": {
+      "app": "music",
+      "query": "telugu music"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785547258.0659425
+  },
+  "click picture": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "picture"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785547850.4010837
+  },
+  "click the kaagadada song": {
+    "action": "MEDIA_NEXT",
+    "params": {
+      "query": "kaagadada song"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785548126.0171254
+  },
+  "play the kaagadada video": {
+    "action": "MEDIA_PLAY",
+    "params": {
+      "params": {
+        "media": "kaagadada video"
+      }
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785548151.8137085
+  },
+  "click on youtube": {
+    "action": "OPEN_APP",
+    "params": {
+      "app": "YouTube"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785548370.9718037
+  },
+  "sesarch for rag": {
+    "action": "SEARCH_IN_APP",
+    "params": {
+      "app": "YouTube",
+      "query": "rag"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785548399.3131037
+  },
+  "my eyes are paining": {
+    "action": "BRIGHTNESS_DOWN",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785706284.5668056
+  },
+  "i am unable to hear anything": {
+    "action": "VOLUME_UP",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785706287.5704713
+  },
+  "volume up": {
+    "action": "VOLUME_UP",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785706291.370086
+  },
+  "open youtube": {
+    "action": "OPEN_APP",
+    "params": {
+      "app": "YouTube"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785706432.2171013
+  },
+  "open pinterest": {
+    "action": "OPEN_APP",
+    "params": {
+      "app": "Pinterest"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785706440.1234016
+  },
+  "scroll down": {
+    "action": "SCROLL_DOWN",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785706448.8432028
+  },
+  "scroll down more": {
+    "action": "SCROLL_DOWN",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785706453.934707
+  },
+  "can you click on never stop creating post": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "never stop creating post"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785706469.249533
+  },
+  "click the penguin's post": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "penguin's post"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785706489.9712722
+  },
+  "search for ai engineers": {
+    "action": "SEARCH_IN_APP",
+    "params": {
+      "query": "AI engineers"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785707012.4993296
+  },
+  "click on search": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "search"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785707361.8186393
+  },
+  "type tiktok": {
+    "action": "TYPE_TEXT",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785707377.4129164
+  },
+  "search for tiktok": {
+    "action": "SEARCH_IN_APP",
+    "params": {
+      "query": "tiktok"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785707392.3756306
+  },
+  "click on the book drawing": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "book drawing"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785707551.9660907
+  },
+  "what do you see ?": {
+    "action": "SCREEN_INFO",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785707711.8909447
+  },
+  "can you click on the budha picture": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "budha picture"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785707762.1114135
+  },
+  "tap on spiderman post": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "spiderman post"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785707843.934983
+  },
+  "can you click on that drawing where people are dancing": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "that drawing where people are dancing"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785707934.141603
+  },
+  "cclick on budha picture": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "budha picture"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785708425.1434808
+  },
+  "clik on the lego picture": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "lego picture"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785708463.739581
+  },
+  "search for nextiva in chrome": {
+    "action": "SEARCH_IN_APP",
+    "params": {
+      "app": "Chrome",
+      "query": "nextiva"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785708652.3082988
+  },
+  "search for nextiva": {
+    "action": "SEARCH_IN_APP",
+    "params": {
+      "query": "nextiva"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785708769.5676131
+  },
+  "i can't see anything": {
+    "action": "BRIGHTNESS_UP",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785708834.043952
+  },
+  "it's too brigh": {
+    "action": "BRIGHTNESS_DOWN",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785708850.446369
+  },
+  "brightness zero": {
+    "action": "BRIGHTNESS_DOWN",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785708876.9375496
+  },
+  "more": {
+    "action": "SCROLL_DOWN",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785708889.724301
+  },
+  "click on the coursera link": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "coursera link"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785710261.8414404
+  },
+  "search for flowers": {
+    "action": "SEARCH_IN_APP",
+    "params": {
+      "query": "flowers"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785710291.0366006
+  },
+  "search for moonlight": {
+    "action": "SEARCH_IN_APP",
+    "params": {
+      "query": "moonlight"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785710313.3624117
+  },
+  "click a picture": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "picture"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785710357.7992485
+  },
+  "take a photo": {
+    "action": "OPEN_APP",
+    "params": {
+      "app": "Camera"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785710388.7671642
+  },
+  "click a photo": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "photo"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785710401.2837582
+  },
+  "search for gemini startups": {
+    "action": "SEARCH_IN_APP",
+    "params": {
+      "query": "gemini startups"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785718225.6938443
+  },
+  "k a photo": {
+    "action": "OPEN_APP",
+    "params": {
+      "target": "Camera",
+      "app": "Camera"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785718257.0924404
+  },
+  "click on the image of messi drawing": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "image of messi drawing"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785718722.8830807
+  },
+  "in youtube search for nextiva cbert ai": {
+    "action": "SEARCH_IN_APP",
+    "params": {
+      "app": "YouTube",
+      "query": "nextiva cbert ai"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785718875.9791312
+  },
+  "scroll dowwn": {
+    "action": "SCROLL_DOWN",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785718897.0682154
+  },
+  "click on play": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "play"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785718915.1235082
+  },
+  "i am unable to hear": {
+    "action": "VOLUME_UP",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785718928.400421
+  },
+  "increase it more. max it": {
+    "action": "VOLUME_MAX",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785718941.251056
+  },
+  "like the video": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "like"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785718977.5482128
+  },
+  "subscribe to the video": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "subscribe",
+      "app": "YouTube"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785718986.1644974
+  },
+  "subscribe it": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "subscribe"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785719002.0872724
+  },
+  "click on subscribe": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "subscribe"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785719007.6453993
+  },
+  "clik on subscribe": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "subscribe"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785719023.9250062
+  },
+  "scroll even more": {
+    "action": "SCROLL_DOWN",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785728622.4069378
+  },
+  "could you select the court room video": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "court room video"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785728639.481194
+  },
+  "could youn select the video which has a donut pivture": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "video which has a donut picture"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785728674.706741
+  },
+  "click on compose": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "compose"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785728784.991848
+  },
+  "write chiru.atluri@gmail.com": {
+    "action": "TYPE_TEXT",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785728801.856182
+  },
+  "click enter": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "enter"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785728810.951185
+  },
+  "tap on subject.": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "subject"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785728834.7227173
+  },
+  "write hello": {
+    "action": "TYPE_TEXT",
+    "params": {
+      "message": "hello"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785728850.6736493
+  },
+  "click on compose email,": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "compose email"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785728870.7926435
+  },
+  "write all the best.": {
+    "action": "TYPE_TEXT",
+    "params": {
+      "message": "all the best."
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785728876.2263322
+  },
+  "click on send icon": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "send icon"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785728895.9912467
+  },
+  "write an email to chiru.atluri@gmail.com, saying i will be doing best and thank you.": {
+    "action": "SEND_MESSAGE",
+    "params": {
+      "contact": "chiru.atluri@gmail.com",
+      "message": "I will be doing best and thank you."
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785728927.0184014
+  },
+  "write an email to chiru.atluri@gmail.com, saying i will be doing best and thank you. from gmail": {
+    "action": "SEND_MESSAGE",
+    "params": {
+      "app": "gmail",
+      "contact": "chiru.atluri@gmail.com",
+      "message": "I will be doing best and thank you."
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785728941.7552354
+  },
+  "select the man at shower picture": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "the man at shower picture"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785729166.0497954
+  },
+  "select the logo of a head": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "logo of a head"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785729192.447237
+  },
+  "selct the picture of mr.bean": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "picture of mr.bean"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785729408.4684772
+  },
+  "select the spiderman picture": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "spiderman picture"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785729485.0637076
+  },
+  "select the shirt picture": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "shirt picture"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785729501.4958003
+  },
+  "select the spiderman lego outline drawing.": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "spiderman lego outline drawing"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785729526.9792614
+  },
+  "select the snake drawing image": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "snake drawing image"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785729546.1245883
+  },
+  "lower the volume": {
+    "action": "VOLUME_DOWN",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785729744.7870321
+  },
+  "click the first video": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "first video"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785730317.5890315
+  },
+  "skip the ad": {
+    "action": "MEDIA_NEXT",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785730337.6574917
+  },
+  "cllike the video": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "video"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785730350.482294
+  },
+  "unlike the video": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "unlike"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785730373.979968
+  },
+  "pasue the video": {
+    "action": "MEDIA_PAUSE",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785730531.136273
+  },
+  "subscribe to the channel": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "subscribe"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785730540.638754
+  },
+  "click on the video where a lady is dancing": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "video where a lady is dancing"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785756380.9440448
+  },
+  "like the post by john": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "like button"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785757742.3474212
+  },
+  "click on the red shirt": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "red shirt"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785757742.6618485
+  },
+  "click on cross": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "cross"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785758138.0659077
+  },
+  "scroll down more more": {
+    "action": "SCROLL_DOWN",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785758167.4801395
+  },
+  "select the second video": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "second video"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785758202.3833816
+  },
+  "n8n video": {
+    "action": "SEARCH_IN_APP",
+    "params": {
+      "query": "n8n video"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785758236.3916109
+  },
+  "select the claude video": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "claude video"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785758286.5498343
+  },
+  "i am uanble to hear": {
+    "action": "VOLUME_UP",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785758296.3050823
+  },
+  "select the white shirt": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "white shirt"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785758630.3642097
+  },
+  "select the superselect the superman lego picture": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "superman lego picture"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785758686.3750775
+  },
+  "vview picture": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "picture"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785758724.6930838
+  },
+  "close": {
+    "action": "CLOSE_APP",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785758750.8458962
+  },
+  "click on images": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "images"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785760985.6498618
+  },
+  "here. open youtube": {
+    "action": "OPEN_APP",
+    "params": {
+      "app": "YouTube"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785762844.4102988
+  },
+  "roll down more": {
+    "action": "SCROLL_DOWN",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785762854.3224754
+  },
+  "can you search for nextiva interview tips": {
+    "action": "SEARCH_IN_APP",
+    "params": {
+      "query": "Nextiva interview tips"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785762865.7016764
+  },
+  "troll down": {
+    "action": "SCROLL_DOWN",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785762914.7383175
+  },
+  "scroll down, scroll down mode": {
+    "action": "SCROLL_DOWN",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785762920.4684792
+  },
+  "can you select the picture of the strawberry": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "picture of the strawberry"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785762935.807613
+  },
+  "can you scroll down a little": {
+    "action": "SCROLL_DOWN",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785763112.2667348
+  },
+  "actually, i'm unable to see. can you increase the brightness": {
+    "action": "BRIGHTNESS_UP",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785763120.8762305
+  },
+  "that is too much brightness. can you lower it to 10 points": {
+    "action": "BRIGHTNESS_DOWN",
+    "params": {
+      "amount": 10
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785763133.668098
+  },
+  "i am unable to hear properly": {
+    "action": "VOLUME_UP",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785763172.5853314
+  },
+  "can you increase volume to 100": {
+    "action": "VOLUME_MAX",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785763179.6334825
+  },
+  "can you increase the brightness a little": {
+    "action": "BRIGHTNESS_UP",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785763199.2132077
+  },
+  "i'm hurting my eyes": {
+    "action": "BRIGHTNESS_DOWN",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785763208.8374186
+  },
+  "i cannot see anything": {
+    "action": "BRIGHTNESS_UP",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785763216.1276257
+  },
+  "it can be a little better, increase more brightness": {
+    "action": "BRIGHTNESS_UP",
+    "params": {},
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785763223.8171906
+  },
+  "can you select the claude video": {
+    "action": "VISION_QUERY",
+    "params": {
+      "target": "Claude video"
+    },
+    "source": "llm",
+    "examples": [],
+    "timestamp": 1785765377.7779977
+  }
+}

@@ -1,0 +1,23 @@
+# Voice-Controlled Android Agent — Python dependencies
+#
+# Core runtime uses only the Python standard library + ADB (bundled in
+# platform-tools-latest-windows/). The packages below enable the optional
+# intelligence tiers and degrade gracefully if missing:
+#   - ollama       : legacy optional local LLM/vision (project defaults to Groq)
+#   - pytesseract  : OCR last-resort fallback for on-screen text (needs Tesseract installed)
+#   - Pillow       : image loading for OCR / vision
+#   - numpy        : array support used by OCR pipeline
+#   - opencv-python: optional image preprocessing for better OCR accuracy
+#   - groq         : STT (whisper-large-v3-turbo), intent (openai/gpt-oss-20b)
+#   - google-genai : Vision + Computer Use (gemini-3.6-flash) — NOT Groq for vision
+
+groq>=0.9.0
+google-genai>=1.0.0
+python-dotenv>=1.0.0
+pytesseract>=0.3.10
+Pillow>=10.0.0
+numpy>=1.24.0
+opencv-python>=4.8.0
+# Voice mode only (`python main.py --voice`). Also needs tkinter (bundled with
+# the official Windows Python installer; not a pip package).
+sounddevice>=0.4.6
